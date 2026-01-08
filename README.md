@@ -1,5 +1,7 @@
 SlowedLab
 
+<img width="1918" height="1001" alt="Screenshot From 2026-01-08 22-59-52" src="https://github.com/user-attachments/assets/8f69cc72-2134-4e11-bfa0-c3625c520892" />
+
 An advanced real-time audio player supporting all effects (slow, reverb) that elevate your music/audio playing to next level
 
 ## Features

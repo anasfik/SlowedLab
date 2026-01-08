@@ -1,0 +1,34 @@
+[
+  {
+    "id": "1767907236267-ow610c",
+    "title": "fdgdfg",
+    "description": "gfdf",
+    "meta": {
+      "preset": "Custom",
+      "effects": {
+        "playbackRate": 0.99,
+        "reverbAmount": 0,
+        "bassBoost": 0,
+        "trebleBoost": 0,
+        "compression": 0,
+        "distortion": 0
+      },
+      "playlistCount": 0
+    },
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0",
+    "ip": "::ffff:172.18.0.1",
+    "ts": "2026-01-08T21:20:36.267Z"
+  },
+  {
+    "id": "1767906400724-z1be4g",
+    "title": "Test report",
+    "description": "Clicking playlist item restarts current track.",
+    "email": "qa@example.com",
+    "meta": {
+      "from": "curl"
+    },
+    "userAgent": "curl/8.17.0",
+    "ip": "::ffff:172.18.0.1",
+    "ts": "2026-01-08T21:06:40.724Z"
+  }
+]

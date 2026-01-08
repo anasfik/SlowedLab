@@ -1,0 +1,41 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "4001:4001"
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/package.json:/app/package.json
+      - ./backend/data:/app/data
+    environment:
+      - NODE_ENV=development
+      - PORT=4001
+    networks:
+      - slowedlab
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/package.json:/app/package.json
+    environment:
+      - REACT_APP_API_URL=http://localhost:4001
+      - CHOKIDAR_USEPOLLING=true
+      - PORT=4000
+    depends_on:
+      - backend
+    networks:
+      - slowedlab
+    stdin_open: true
+    tty: true
+
+networks:
+  slowedlab:
+    driver: bridge

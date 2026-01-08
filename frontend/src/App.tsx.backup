@@ -1,0 +1,268 @@
+/**
+ * Main Application Component
+ * Orchestrates the audio editor interface
+ */
+
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { AudioSession, EffectsConfig, DEFAULT_EFFECTS_CONFIG } from '../audio-engine/src/types';
+import AudioUpload from './components/AudioUpload';
+import WaveformViewer from './components/WaveformViewer';
+import EffectControls from './components/EffectControls';
+import PlaybackControls from './components/PlaybackControls';
+import ExportPanel from './components/ExportPanel';
+import UndoRedoStack from './utils/UndoRedoStack';
+import AudioProcessor from './services/AudioProcessor';
+import './App.css';
+
+interface AppState {
+  session: AudioSession | null;
+  effectsConfig: EffectsConfig;
+  isProcessing: boolean;
+  processingProgress: number;
+  error: string | null;
+}
+
+export default function App() {
+  const [state, setState] = useState<AppState>({
+    session: null,
+    effectsConfig: DEFAULT_EFFECTS_CONFIG,
+    isProcessing: false,
+    processingProgress: 0,
+    error: null,
+  });
+
+  const undoRedoRef = useRef(new UndoRedoStack<EffectsConfig>());
+  const audioProcessorRef = useRef(new AudioProcessor());
+
+  // Handle audio file upload
+  const handleAudioUpload = useCallback(async (file: File) => {
+    setState((prev) => ({ ...prev, isProcessing: true, error: null }));
+
+    try {
+      const audioBuffer = await audioProcessorRef.current.loadAudio(file);
+
+      const newSession: AudioSession = {
+        id: Date.now().toString(),
+        uploadedFile: file,
+        audioBuffer,
+        effectsConfig: DEFAULT_EFFECTS_CONFIG,
+        playbackPosition: 0,
+        isPlaying: false,
+        createdAt: new Date(),
+      };
+
+      setState((prev) => ({
+        ...prev,
+        session: newSession,
+        isProcessing: false,
+      }));
+
+      // Initialize undo/redo
+      undoRedoRef.current.clear();
+      undoRedoRef.current.push(DEFAULT_EFFECTS_CONFIG);
+    } catch (error) {
+      setState((prev) => ({
+        ...prev,
+        error: `Failed to load audio: ${error}`,
+        isProcessing: false,
+      }));
+    }
+  }, []);
+
+  // Handle effects configuration change
+  const handleEffectsChange = useCallback((config: EffectsConfig) => {
+    undoRedoRef.current.push(config);
+    setState((prev) => ({
+      ...prev,
+      effectsConfig: config,
+    }));
+  }, []);
+
+  // Undo operation
+  const handleUndo = useCallback(() => {
+    const previous = undoRedoRef.current.undo();
+    if (previous) {
+      setState((prev) => ({
+        ...prev,
+        effectsConfig: previous,
+      }));
+    }
+  }, []);
+
+  // Redo operation
+  const handleRedo = useCallback(() => {
+    const next = undoRedoRef.current.redo();
+    if (next) {
+      setState((prev) => ({
+        ...prev,
+        effectsConfig: next,
+      }));
+    }
+  }, []);
+
+  // Process audio with effects
+  const handleProcessAudio = useCallback(async () => {
+    if (!state.session) return;
+
+    setState((prev) => ({ ...prev, isProcessing: true }));
+
+    try {
+      const processedBuffer = await audioProcessorRef.current.processEffects(
+        state.session.audioBuffer,
+        state.effectsConfig,
+        (progress) => {
+          setState((prev) => ({
+            ...prev,
+            processingProgress: progress.percentage,
+          }));
+        }
+      );
+
+      setState((prev) => ({
+        ...prev,
+        session: prev.session
+          ? {
+              ...prev.session,
+              processedBuffer,
+            }
+          : null,
+        isProcessing: false,
+        processingProgress: 0,
+      }));
+    } catch (error) {
+      setState((prev) => ({
+        ...prev,
+        error: `Processing failed: ${error}`,
+        isProcessing: false,
+      }));
+    }
+  }, [state.session, state.effectsConfig]);
+
+  // Export audio
+  const handleExport = useCallback(async (format: string, bitrate: number) => {
+    if (!state.session) return;
+
+    setState((prev) => ({ ...prev, isProcessing: true }));
+
+    try {
+      const buffer = state.session.processedBuffer || state.session.audioBuffer;
+      const blob = await audioProcessorRef.current.exportAudio(buffer, {
+        format: format as any,
+        bitrate: bitrate as any,
+      });
+
+      // Download file
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `audio.${format}`;
+      link.click();
+      URL.revokeObjectURL(url);
+
+      setState((prev) => ({ ...prev, isProcessing: false }));
+    } catch (error) {
+      setState((prev) => ({
+        ...prev,
+        error: `Export failed: ${error}`,
+        isProcessing: false,
+      }));
+    }
+  }, [state.session]);
+
+  return (
+    <div className="app-container">
+      {/* Header */}
+      <header className="app-header">
+        <h1>SlowedReverb</h1>
+        <p>Professional Audio Editing & Effects</p>
+      </header>
+
+      {/* Error Message */}
+      {state.error && (
+        <div className="error-banner">
+          <span>{state.error}</span>
+          <button onClick={() => setState((prev) => ({ ...prev, error: null }))}>
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Main Content */}
+      <main className="app-main">
+        {!state.session ? (
+          <AudioUpload onUpload={handleAudioUpload} isLoading={state.isProcessing} />
+        ) : (
+          <>
+            {/* Waveform Viewer */}
+            <section className="waveform-section">
+              <WaveformViewer
+                audioBuffer={state.session.audioBuffer}
+                playbackPosition={state.session.playbackPosition}
+              />
+            </section>
+
+            {/* Controls */}
+            <section className="controls-section">
+              {/* Playback Controls */}
+              <PlaybackControls
+                isPlaying={state.session.isPlaying}
+                position={state.session.playbackPosition}
+                duration={state.session.audioBuffer.format.duration}
+                disabled={state.isProcessing}
+              />
+
+              {/* Undo/Redo */}
+              <div className="undo-redo-controls">
+                <button
+                  onClick={handleUndo}
+                  disabled={!undoRedoRef.current.canUndo() || state.isProcessing}
+                  title="Undo (Ctrl+Z)"
+                >
+                  ↶ Undo
+                </button>
+                <button
+                  onClick={handleRedo}
+                  disabled={!undoRedoRef.current.canRedo() || state.isProcessing}
+                  title="Redo (Ctrl+Y)"
+                >
+                  ↷ Redo
+                </button>
+              </div>
+
+              {/* Effects Controls */}
+              <EffectControls
+                config={state.effectsConfig}
+                onChange={handleEffectsChange}
+                disabled={state.isProcessing}
+              />
+
+              {/* Process Button */}
+              <button
+                className="process-button"
+                onClick={handleProcessAudio}
+                disabled={state.isProcessing}
+              >
+                {state.isProcessing
+                  ? `Processing... ${state.processingProgress}%`
+                  : 'Apply Effects'}
+              </button>
+
+              {/* Export Panel */}
+              <ExportPanel
+                onExport={handleExport}
+                disabled={state.isProcessing || !state.session}
+              />
+            </section>
+          </>
+        )}
+      </main>
+
+      {/* Footer */}
+      <footer className="app-footer">
+        <p>
+          SlowedReverb © 2026 | High-Quality Audio Processing for Everyone
+        </p>
+      </footer>
+    </div>
+  );
+}

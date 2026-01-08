@@ -554,8 +554,6 @@ body {
   width: 20px;
   height: 20px;
 }
-  height: 16px;
-}
 
 .icon-btn-primary {
   background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));

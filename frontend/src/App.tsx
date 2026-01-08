@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { FiPlay, FiPause, FiSkipBack, FiSkipForward, FiSquare, FiDownload, FiBookmark } from 'react-icons/fi';
+import { FiPlay, FiPause, FiSkipBack, FiSkipForward, FiSquare, FiDownload, FiBookmark, FiGithub } from 'react-icons/fi';
 import './App.css';
 import Waveform from './components/Waveform.tsx';
 import BugReportPanel from './components/BugReportPanel.tsx';
@@ -1367,6 +1367,15 @@ export default function App() {
               aria-label="Bookmark website"
             >
               <FiBookmark size={20} />
+            </button>
+            {/* GitHub Button */}
+            <button
+              className="topbar-icon-button"
+              onClick={() => window.open('https://github.com/anasfik/SlowedLab', '_blank')}
+              title="View source on GitHub"
+              aria-label="Open GitHub repository"
+            >
+              <FiGithub size={20} />
             </button>
             {/* Status Indicators */}
             {/* Status Indicators */}

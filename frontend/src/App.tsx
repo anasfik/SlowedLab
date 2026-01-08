@@ -1359,15 +1359,6 @@ export default function App() {
           </div>
 
           <div className="topbar-actions">
-            {/* Bookmark Button */}
-            <button
-              className="topbar-icon-button"
-              onClick={bookmarkWebsite}
-              title="Bookmark this website"
-              aria-label="Bookmark website"
-            >
-              <FiBookmark size={20} />
-            </button>
             {/* GitHub Button */}
             <button
               className="topbar-icon-button"
@@ -1746,6 +1737,16 @@ export default function App() {
         onChangeEmail={setBugEmail}
         onSubmit={submitBugReport}
       />
+
+      {/* Floating Bookmark Button */}
+      <button
+        className="floating-bookmark-button"
+        onClick={bookmarkWebsite}
+        aria-label="Bookmark for later"
+      >
+        <FiBookmark size={20} />
+        <span className="bookmark-text">Bookmark for later</span>
+      </button>
     </div>
   );
 }

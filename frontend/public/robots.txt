@@ -1,0 +1,17 @@
+# Allow search engines to crawl the site
+User-agent: *
+Allow: /
+Disallow: /build/
+Disallow: /node_modules/
+
+# Specific rules for major search engines
+User-agent: Googlebot
+Allow: /
+Crawl-delay: 1
+
+User-agent: Bingbot
+Allow: /
+Crawl-delay: 1
+
+# Sitemap location
+Sitemap: https://slowedlab.com/sitemap.xml

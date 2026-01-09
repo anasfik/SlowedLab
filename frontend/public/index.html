@@ -1,14 +1,87 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
+    <!-- Primary Meta Tags -->
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
+    <meta name="theme-color" content="#323842" />
     <meta
       name="description"
-      content="SlowedLab - An advanced real-time audio player supporting all effects (slow, reverb) that elevate your music/audio playing to next level"
+      content="SlowedLab - Advanced real-time audio player with professional effects including time-stretching, reverb, EQ, compression, and distortion. 100% free, client-side processing, no limits."
     />
-    <title>SlowedLab - Audio Slowing & Reverb Effects</title>
+    <meta name="keywords" content="audio editor, audio effects, time stretching, reverb, EQ, audio player, music effects, online audio editor, web audio, audio processing, distortion, compression, pitch preservation" />
+    <meta name="author" content="SlowedLab" />
+    <meta name="robots" content="index, follow" />
+    <meta name="language" content="English" />
+    <link rel="canonical" href="https://slowedlab.com" />
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%23323842' width='100' height='100'/><circle cx='50' cy='50' r='35' fill='%23fff'/><circle cx='40' cy='45' r='8' fill='%23323842'/><circle cx='60' cy='45' r='8' fill='%23323842'/><path d='M 35 65 Q 50 75 65 65' stroke='%23323842' stroke-width='2' fill='none'/></svg>" />
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect fill='%23323842' width='180' height='180'/><circle cx='90' cy='90' r='63' fill='%23fff'/><circle cx='72' cy='81' r='14' fill='%23323842'/><circle cx='108' cy='81' r='14' fill='%23323842'/><path d='M 63 117 Q 90 135 117 117' stroke='%23323842' stroke-width='3' fill='none'/></svg>" />
+
+    <!-- Open Graph / Social Media -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://slowedlab.com" />
+    <meta property="og:title" content="SlowedLab - Professional Audio Editor with Real-Time Effects" />
+    <meta property="og:description" content="Advanced real-time audio player with professional effects: time-stretching, reverb, EQ, compression, and distortion. 100% free, no registration needed." />
+    <meta property="og:image" content="https://github.com/user-attachments/assets/8f69cc72-2134-4e11-bfa0-c3625c520892" />
+    <meta property="og:image:width" content="1918" />
+    <meta property="og:image:height" content="1001" />
+    <meta property="og:site_name" content="SlowedLab" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="https://slowedlab.com" />
+    <meta name="twitter:title" content="SlowedLab - Professional Audio Editor" />
+    <meta name="twitter:description" content="Advanced real-time audio effects: time-stretching, reverb, EQ, compression. 100% free, client-side processing." />
+    <meta name="twitter:image" content="https://github.com/user-attachments/assets/8f69cc72-2134-4e11-bfa0-c3625c520892" />
+    <meta name="twitter:creator" content="@gwhyyy" />
+
+    <!-- Additional SEO Meta Tags -->
+    <meta name="rating" content="general" />
+    <meta name="revisit-after" content="7 days" />
+    <meta name="distribution" content="global" />
+    
+    <title>SlowedLab - Professional Audio Editor with Real-Time Effects | Free Online Tool</title>
+
+    <!-- JSON-LD Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "SlowedLab",
+      "description": "Advanced real-time audio player supporting professional effects including time-stretching, reverb, EQ, compression, and distortion",
+      "url": "https://slowedlab.com",
+      "applicationCategory": "Multimedia",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD",
+        "availability": "https://schema.org/InStock"
+      },
+      "image": "https://github.com/user-attachments/assets/8f69cc72-2134-4e11-bfa0-c3625c520892",
+      "screenshot": "https://github.com/user-attachments/assets/8f69cc72-2134-4e11-bfa0-c3625c520892",
+      "author": {
+        "@type": "Person",
+        "name": "Gwhyyy"
+      },
+      "featureList": [
+        "Time-stretching with pitch preservation",
+        "Professional reverb engine",
+        "Real-time audio effects",
+        "Waveform visualization",
+        "Preset management",
+        "Multiple audio format support",
+        "100% client-side processing"
+      ],
+      "browserRequirements": "Requires modern browser with Web Audio API support",
+      "permissions": "Audio input/output"
+    }
+    </script>
+
+    <!-- Preconnect to External Resources -->
+    <link rel="preconnect" href="https://storage.ko-fi.com" />
+    <link rel="dns-prefetch" href="https://storage.ko-fi.com" />
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
@@ -19,7 +92,8 @@
         'type': 'floating-chat',
         'floating-chat.donateButton.text': 'Donate',
         'floating-chat.donateButton.background-color': '#323842',
-        'floating-chat.donateButton.text-color': '#fff'
+        'floating-chat.donateButton.text-color': '#fff',
+        // 'floating-chat.position': 'left'
       });
     </script>
   </body>

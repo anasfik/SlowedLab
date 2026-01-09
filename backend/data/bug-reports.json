@@ -1,5 +1,14 @@
 [
   {
+    "id": "1767971051824-3h4cjf",
+    "title": "Test Report",
+    "description": "This is a test bug report",
+    "meta": {},
+    "userAgent": "curl/8.17.0",
+    "ip": "::ffff:172.19.0.1",
+    "ts": "2026-01-09T15:04:11.825Z"
+  },
+  {
     "id": "1767907236267-ow610c",
     "title": "fdgdfg",
     "description": "gfdf",

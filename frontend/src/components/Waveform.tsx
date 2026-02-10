@@ -123,8 +123,8 @@ export default function Waveform({ buffer, currentTime, playbackRate, onSeek, he
       if (x + barW < 0 || x > w) continue; // clip to viewport
 
       const grad = ctx.createLinearGradient(0, y, 0, y + barH);
-      grad.addColorStop(0, '#5ce1e6');
-      grad.addColorStop(1, '#7a5af5');
+      grad.addColorStop(0, '#8b5cf6'); // Electric Violet
+      grad.addColorStop(1, '#22d3ee'); // Cyan
       ctx.fillStyle = grad;
       ctx.fillRect(x, y, Math.max(1, barW - 0.5), barH);
     }
@@ -136,8 +136,8 @@ export default function Waveform({ buffer, currentTime, playbackRate, onSeek, he
     ctx.fillRect(dimStartX, 0, scaledW - playheadPixel, h);
 
     // Playhead line
-    ctx.strokeStyle = 'rgba(92,225,230,0.95)';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#a78bfa'; // Primary hover color
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
     ctx.moveTo(Math.floor(playheadX) + 0.5, 0);
     ctx.lineTo(Math.floor(playheadX) + 0.5, h);
@@ -152,7 +152,7 @@ export default function Waveform({ buffer, currentTime, playbackRate, onSeek, he
       const x = e.clientX - rect.left;
       const rate = Math.max(0.0001, playbackRate);
       const total = buffer.duration / rate;
-      
+
       // Calculate current pan state to account for waveform scrolling
       const speedScale = 1 / rate;
       const scaledW = Math.max(rect.width, Math.floor(rect.width * speedScale));
@@ -162,7 +162,7 @@ export default function Waveform({ buffer, currentTime, playbackRate, onSeek, he
       const playheadPixel = progress * scaledW;
       const targetPlayheadX = rect.width * 0.65;
       const panOffset = scaledW > rect.width ? Math.max(0, Math.min(playheadPixel - targetPlayheadX, scaledW - rect.width)) : 0;
-      
+
       // Map viewport X to scaled waveform position, accounting for pan
       const scaledX = x + panOffset;
       const pct = Math.max(0, Math.min(1, scaledX / scaledW));

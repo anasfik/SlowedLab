@@ -4,10 +4,18 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { FiPlay, FiPause, FiSkipBack, FiSkipForward, FiSquare, FiDownload, FiBookmark, FiGithub } from 'react-icons/fi';
+import {
+  FiPlay, FiPause, FiSkipBack, FiSkipForward, FiBookmark, FiMusic,
+  FiActivity, FiVolume2, FiCpu,
+  FiHeadphones, FiStar, FiZap as FiBolt, FiDroplet as FiDiamond, FiSliders,
+  FiSettings, FiX
+} from 'react-icons/fi';
+import Topbar from './components/Topbar.tsx';
+import Sidebar from './components/Sidebar.tsx';
 import './App.css';
 import Waveform from './components/Waveform.tsx';
 import BugReportPanel from './components/BugReportPanel.tsx';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.ts';
 
 // Extend window interface for bookmark functionality
 declare global {
@@ -18,7 +26,7 @@ declare global {
   }
 }
 
-interface AudioFile {
+export interface AudioFile {
   id: string;
   file: File;
   buffer: AudioBuffer | null;
@@ -26,7 +34,7 @@ interface AudioFile {
   isLoading: boolean;
 }
 
-interface AudioState {
+export interface AudioState {
   playlist: AudioFile[];
   currentTrackIndex: number;
   currentTime: number;
@@ -34,7 +42,7 @@ interface AudioState {
   error: string | null;
 }
 
-interface EffectSettings {
+export interface EffectSettings {
   playbackRate: number;
   reverbAmount: number;
   bassBoost: number;
@@ -43,14 +51,14 @@ interface EffectSettings {
   distortion: number;
 }
 
-interface Preset {
+export interface Preset {
   name: string;
   description: string;
   icon: string;
   settings: EffectSettings;
 }
 
-interface UserPreset extends Preset {
+export interface UserPreset extends Preset {
   id: string;
 }
 
@@ -91,52 +99,66 @@ const PRESETS: Preset[] = [
   {
     name: 'Slowed + Reverb',
     description: 'Classic slowed and reverb effect',
-    icon: '🌊',
+    icon: 'waves',
     settings: { playbackRate: 0.75, reverbAmount: 60, bassBoost: 20, trebleBoost: 0, compression: 30, distortion: 0 }
   },
   {
     name: 'Nightcore',
     description: 'Fast pitch with energy',
-    icon: '⚡',
+    icon: 'bolt',
     settings: { playbackRate: 1.35, reverbAmount: 20, bassBoost: 0, trebleBoost: 30, compression: 40, distortion: 0 }
   },
   {
     name: 'Bass Boosted',
     description: 'Deep bass enhancement',
-    icon: '🔊',
+    icon: 'volumeHigh',
     settings: { playbackRate: 1.0, reverbAmount: 15, bassBoost: 60, trebleBoost: -10, compression: 50, distortion: 5 }
   },
   {
     name: 'Lo-Fi Chill',
     description: 'Warm and relaxed vibe',
-    icon: '🎧',
+    icon: 'headphones',
     settings: { playbackRate: 0.95, reverbAmount: 40, bassBoost: 25, trebleBoost: -15, compression: 35, distortion: 10 }
   },
   {
     name: 'Ethereal Dream',
     description: 'Maximum reverb and space',
-    icon: '✨',
+    icon: 'sparkles',
     settings: { playbackRate: 0.85, reverbAmount: 85, bassBoost: 10, trebleBoost: 20, compression: 25, distortion: 0 }
   },
   {
     name: 'Crystal Clear',
     description: 'Enhanced clarity and brightness',
-    icon: '💎',
+    icon: 'diamond',
     settings: { playbackRate: 1.0, reverbAmount: 10, bassBoost: 0, trebleBoost: 40, compression: 30, distortion: 0 }
   },
   {
     name: 'Distorted',
     description: 'Gritty and raw sound',
-    icon: '🎸',
+    icon: 'flame',
     settings: { playbackRate: 1.0, reverbAmount: 30, bassBoost: 30, trebleBoost: 20, compression: 60, distortion: 50 }
   },
   {
     name: 'Custom',
-    description: 'Your own settings',
-    icon: '🎚️',
+    description: 'Fine-tune every parameter',
+    icon: 'sliders',
     settings: { playbackRate: 1.0, reverbAmount: 0, bassBoost: 0, trebleBoost: 0, compression: 0, distortion: 0 }
   }
 ];
+
+export const IconRenderer = ({ icon, size = 18 }: { icon: string; size?: number }) => {
+  switch (icon) {
+    case 'waves': return <FiActivity size={size} />;
+    case 'bolt': return <FiBolt size={size} />;
+    case 'volumeHigh': return <FiVolume2 size={size} />;
+    case 'headphones': return <FiHeadphones size={size} />;
+    case 'sparkles': return <FiStar size={size} />;
+    case 'diamond': return <FiDiamond size={size} />;
+    case 'flame': return <FiCpu size={size} />;
+    case 'sliders': return <FiSliders size={size} />;
+    default: return <FiMusic size={size} />;
+  }
+};
 
 export default function App() {
   const [audio, setAudio] = useState<AudioState>({
@@ -150,9 +172,9 @@ export default function App() {
   const [volume, setVolume] = useState(1.0);
   const [effects, setEffects] = useState<EffectSettings>({ ...DEFAULT_EFFECTS });
   const [selectedPreset, setSelectedPreset] = useState('Custom');
-  const [activeTab, setActiveTab] = useState<'console' | 'playlist'>('console');
+
   const [isDragging, setIsDragging] = useState(false);
-  
+
   const [playHistory, setPlayHistory] = useState<PlayHistoryItem[]>([]);
   const [userPresets, setUserPresets] = useState<UserPreset[]>([]);
   const [abBaseline, setAbBaseline] = useState<EffectSettings | null>(null);
@@ -160,7 +182,7 @@ export default function App() {
   const [abActive, setAbActive] = useState(false);
   const [presetNameInput, setPresetNameInput] = useState('My Preset');
   const [isRestoring, setIsRestoring] = useState(true);
-  const [loadingProgress, setLoadingProgress] = useState<{fileName: string, progress: number} | null>(null);
+  const [loadingProgress, setLoadingProgress] = useState<{ fileName: string, progress: number } | null>(null);
   const [showBugModal, setShowBugModal] = useState(false);
   const [bugTitle, setBugTitle] = useState('');
   const [bugDescription, setBugDescription] = useState('');
@@ -178,7 +200,7 @@ export default function App() {
   const trebleEQRef = useRef<BiquadFilterNode | null>(null);
   const compressorRef = useRef<DynamicsCompressorNode | null>(null);
   const distortionRef = useRef<WaveShaperNode | null>(null);
-  
+
   const animationFrameRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
   const pauseTimeRef = useRef<number>(0); // buffer position (seconds)
@@ -188,8 +210,8 @@ export default function App() {
   const audioStateRef = useRef<AudioState | null>(null);
   const playingRef = useRef(false);
   const currentTrackRef = useRef<AudioFile | null>(null);
-  const playAudioRef = useRef<() => void>(() => {});
-  const stopAudioRef = useRef<() => void>(() => {});
+  const playAudioRef = useRef<() => void>(() => { });
+  const stopAudioRef = useRef<() => void>(() => { });
   const [bufferPosition, setBufferPosition] = useState(0);
 
   // Validate audio file
@@ -198,7 +220,7 @@ export default function App() {
     if (file.size > MAX_FILE_SIZE) {
       return `File "${file.name}" is too large. Maximum size is 200MB.`;
     }
-    
+
     if (file.size === 0) {
       return `File "${file.name}" is empty.`;
     }
@@ -301,6 +323,7 @@ export default function App() {
   const autoPlayFirst = useCallback(() => {
     pauseTimeRef.current = 0;
     pauseTimelineRef.current = 0;
+    startTimeRef.current = audioContextRef.current?.currentTime || 0;
     setBufferPosition(0);
     setAudio(prev => ({ ...prev, currentTrackIndex: 0, currentTime: 0 }));
     setTimeout(() => {
@@ -320,27 +343,27 @@ export default function App() {
   // Initialize Audio Context
   useEffect(() => {
     audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-    
+
     // Create reverb impulse response
     const createReverb = () => {
       const convolver = audioContextRef.current!.createConvolver();
       const rate = audioContextRef.current!.sampleRate;
       const length = rate * 2; // 2 second reverb
       const impulse = audioContextRef.current!.createBuffer(2, length, rate);
-      
+
       for (let channel = 0; channel < 2; channel++) {
         const impulseData = impulse.getChannelData(channel);
         for (let i = 0; i < length; i++) {
           impulseData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 2);
         }
       }
-      
+
       convolver.buffer = impulse;
       convolverNodeRef.current = convolver;
     };
-    
+
     createReverb();
-    
+
     return () => {
       if (audioContextRef.current) {
         audioContextRef.current.close();
@@ -449,21 +472,21 @@ export default function App() {
     for (let i = 0; i < newTracks.length; i++) {
       try {
         setLoadingProgress({ fileName: audioFiles[i].name, progress: 0 });
-        
+
         const arrayBuffer = await audioFiles[i].arrayBuffer();
         setLoadingProgress({ fileName: audioFiles[i].name, progress: 50 });
-        
+
         const buffer = await audioContextRef.current!.decodeAudioData(arrayBuffer);
         setLoadingProgress({ fileName: audioFiles[i].name, progress: 100 });
-        
+
         // Waveform handled by component
 
         await persistTrackToDB(newTracks[i].id, audioFiles[i]);
-        
+
         setAudio(prev => ({
           ...prev,
-          playlist: prev.playlist.map(track => 
-            track.id === newTracks[i].id 
+          playlist: prev.playlist.map(track =>
+            track.id === newTracks[i].id
               ? { ...track, buffer, duration: buffer.duration, isLoading: false }
               : track
           ),
@@ -474,10 +497,10 @@ export default function App() {
         }
       } catch (err) {
         console.error('Failed to load audio:', err);
-        const errorMsg = err instanceof Error 
+        const errorMsg = err instanceof Error
           ? `Failed to load "${audioFiles[i].name}": ${err.message.includes('Unable to decode') ? 'Unsupported or corrupted audio format' : err.message}`
           : `Failed to load "${audioFiles[i].name}": Unknown error`;
-        
+
         setAudio(prev => ({
           ...prev,
           playlist: prev.playlist.filter(track => track.id !== newTracks[i].id),
@@ -488,7 +511,7 @@ export default function App() {
         setLoadingProgress(null);
       }
     }
-    
+
     // Reset file input
     e.target.value = '';
   };
@@ -508,7 +531,7 @@ export default function App() {
     setIsDragging(false);
 
     const files = Array.from(e.dataTransfer.files);
-    
+
     // Validate all files
     const validationErrors: string[] = [];
     const validFiles: File[] = [];
@@ -534,7 +557,7 @@ export default function App() {
       }
       return;
     }
-    
+
     const audioFiles = validFiles;
 
     const shouldAutoplay = audio.playlist.length === 0;
@@ -557,22 +580,22 @@ export default function App() {
     for (let i = 0; i < newTracks.length; i++) {
       try {
         setLoadingProgress({ fileName: audioFiles[i].name, progress: 0 });
-        
+
         const arrayBuffer = await audioFiles[i].arrayBuffer();
         setLoadingProgress({ fileName: audioFiles[i].name, progress: 50 });
-        
+
         const buffer = await audioContextRef.current!.decodeAudioData(arrayBuffer);
         setLoadingProgress({ fileName: audioFiles[i].name, progress: 100 });
-        
+
         // Waveform handled by component
-        
+
         // Persist dropped track to cache for session restore
         await persistTrackToDB(newTracks[i].id, audioFiles[i]);
-        
+
         setAudio(prev => ({
           ...prev,
-          playlist: prev.playlist.map(track => 
-            track.id === newTracks[i].id 
+          playlist: prev.playlist.map(track =>
+            track.id === newTracks[i].id
               ? { ...track, buffer, duration: buffer.duration, isLoading: false }
               : track
           ),
@@ -583,10 +606,10 @@ export default function App() {
         }
       } catch (err) {
         console.error('Failed to load audio:', err);
-        const errorMsg = err instanceof Error 
+        const errorMsg = err instanceof Error
           ? `Failed to load "${audioFiles[i].name}": ${err.message.includes('Unable to decode') ? 'Unsupported or corrupted audio format' : err.message}`
           : `Failed to load "${audioFiles[i].name}": Unknown error`;
-        
+
         setAudio(prev => ({
           ...prev,
           playlist: prev.playlist.filter(track => track.id !== newTracks[i].id),
@@ -628,7 +651,7 @@ export default function App() {
         }
         sourceNodeRef.current = null;
       }
-      
+
       const nextIndex = state.currentTrackIndex + 1;
       const nextTrack = state.playlist[nextIndex];
       if (nextTrack?.buffer) {
@@ -637,7 +660,13 @@ export default function App() {
         pauseTimelineRef.current = 0;
         setBufferPosition(0);
         setAudio(prev => ({ ...prev, currentTrackIndex: nextIndex, currentTime: 0, isPlaying: false }));
-        setTimeout(() => playAudioRef.current?.(), 80);
+        // Stop current source correctly before auto-play
+        if (sourceNodeRef.current) {
+          (sourceNodeRef.current as any).onended = null;
+          (sourceNodeRef.current as any).stop();
+          sourceNodeRef.current = null;
+        }
+        setTimeout(() => playAudioRef.current?.(), 100);
       } else {
         stopAudioRef.current?.();
       }
@@ -661,13 +690,14 @@ export default function App() {
   }, [selectedPreset]);
 
   // Play audio with all effects
-  const playAudio = useCallback(() => {
+  const playAudio = useCallback(async () => {
     const track = currentTrackRef.current;
     if (!track?.buffer || !audioContextRef.current) return;
 
     // Stop any existing audio source to prevent concurrent playback
     if (sourceNodeRef.current) {
       try {
+        sourceNodeRef.current.onended = null; // Prevent race conditions
         sourceNodeRef.current.stop();
         sourceNodeRef.current.disconnect();
       } catch (e) {
@@ -677,7 +707,9 @@ export default function App() {
     }
 
     // Ensure context is ready
-    void audioContextRef.current.resume();
+    if (audioContextRef.current.state === 'suspended') {
+      await audioContextRef.current.resume();
+    }
 
     // Create audio nodes
     const source = audioContextRef.current.createBufferSource();
@@ -687,7 +719,7 @@ export default function App() {
     const trebleEQ = audioContextRef.current.createBiquadFilter();
     const compressor = audioContextRef.current.createDynamicsCompressor();
     const distortion = audioContextRef.current.createWaveShaper();
-    
+
     source.buffer = track.buffer;
     source.playbackRate.value = effects.playbackRate;
     gainNode.gain.value = volume;
@@ -732,7 +764,7 @@ export default function App() {
       }
       const deg = Math.PI / 180;
       const k = amount * 50;
-      
+
       for (let i = 0; i < samples; i++) {
         const x = (i * 2) / samples - 1;
         curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
@@ -748,11 +780,11 @@ export default function App() {
     bassEQ.connect(trebleEQ);
     trebleEQ.connect(compressor);
     compressor.connect(gainNode);
-    
+
     // Dry signal
     gainNode.connect(dryGain);
     dryGain.connect(audioContextRef.current.destination);
-    
+
     // Wet signal (with reverb)
     gainNode.connect(convolver);
     convolver.connect(reverbGain);
@@ -845,7 +877,7 @@ export default function App() {
         }
         const deg = Math.PI / 180;
         const k = amount * 50;
-        
+
         for (let i = 0; i < samples; i++) {
           const x = (i * 2) / samples - 1;
           curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
@@ -873,6 +905,7 @@ export default function App() {
   // Pause audio
   const pauseAudio = useCallback(() => {
     if (sourceNodeRef.current) {
+      sourceNodeRef.current.onended = null; // Avoid state reset on manual pause
       sourceNodeRef.current.stop();
       sourceNodeRef.current = null;
     }
@@ -901,6 +934,7 @@ export default function App() {
   // Stop audio
   const stopAudio = useCallback(() => {
     if (sourceNodeRef.current) {
+      sourceNodeRef.current.onended = null;
       sourceNodeRef.current.stop();
       sourceNodeRef.current = null;
     }
@@ -990,7 +1024,7 @@ export default function App() {
       setEffects(preset.settings);
       setSelectedPreset(presetName);
       setAbBaseline(preset.settings);
-      
+
       // If playing, restart with new effects
       if (audio.isPlaying) {
         pauseAudio();
@@ -1061,14 +1095,19 @@ export default function App() {
   // Track management
   const playTrack = (index: number) => {
     if (index < 0 || index >= audio.playlist.length) return;
-    
+
     if (audio.isPlaying) {
       stopAudio();
     }
-    
+
+    // STRICT RESET of all timekeeping refs to ensure clean state
     pauseTimeRef.current = 0;
+    pauseTimelineRef.current = 0;
+    startTimeRef.current = audioContextRef.current?.currentTime || 0;
+    setBufferPosition(0);
+
     setAudio(prev => ({ ...prev, currentTrackIndex: index, currentTime: 0 }));
-    
+
     const track = audio.playlist[index];
     if (track.buffer) {
       setTimeout(() => playAudioRef.current?.(), 100);
@@ -1143,19 +1182,7 @@ export default function App() {
     localStorage.removeItem(STORAGE_KEYS.playHistory);
   };
 
-  const moveTrack = (from: number, to: number) => {
-    setAudio(prev => {
-      if (to < 0 || to >= prev.playlist.length) return prev;
-      const updated = [...prev.playlist];
-      const [item] = updated.splice(from, 1);
-      updated.splice(to, 0, item);
-      return {
-        ...prev,
-        playlist: updated,
-        currentTrackIndex: prev.currentTrackIndex === from ? to : prev.currentTrackIndex,
-      };
-    });
-  };
+
 
   const seekTo = useCallback((newTime: number) => {
     if (!currentTrack?.buffer) return;
@@ -1177,13 +1204,56 @@ export default function App() {
     }
   }, [audio.isPlaying, currentTrack, pauseAudio, playAudio, effects.playbackRate]);
 
-  const handleProgressDrag = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = parseFloat(e.target.value);
-    seekTo(value);
-  };
+
 
   // Handle canvas click for seeking
   // Seeking handled by Waveform component via onSeek
+
+  // Keyboard Shortcuts
+  // UI States for Glass & Void Design
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Settings/Effects
+  const [isPlaylistOpen, setIsPlaylistOpen] = useState(false); // Playlist
+
+  useKeyboardShortcuts({
+    onPlayPause: () => {
+      if (currentTrack?.buffer && !currentTrack.isLoading) {
+        togglePlayback();
+      }
+    },
+    onNext: playNextTrack,
+    onPrevious: playPreviousTrack,
+    onSeek: (delta) => {
+      // Current time + delta, clamped
+      if (!currentTrack?.buffer) return;
+      const actualDuration = currentTrack.duration / effects.playbackRate;
+      const newTime = Math.max(0, Math.min(audio.currentTime + delta, actualDuration));
+      seekTo(newTime);
+    }
+  });
+
+  // MediaSession API for global controls
+  useEffect(() => {
+    if ('mediaSession' in navigator && currentTrack) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: currentTrack.file.name.replace(/\.[^/.]+$/, ""),
+        artist: 'SlowedLab',
+        album: 'SlowedLab Session',
+        artwork: [
+          { src: 'https://img.icons8.com/fluency/96/000000/music.png', sizes: '96x96', type: 'image/png' },
+          { src: 'https://img.icons8.com/fluency/512/000000/music.png', sizes: '512x512', type: 'image/png' },
+        ]
+      });
+
+      navigator.mediaSession.setActionHandler('play', () => togglePlayback());
+      navigator.mediaSession.setActionHandler('pause', () => togglePlayback());
+      navigator.mediaSession.setActionHandler('previoustrack', () => playPreviousTrack());
+      navigator.mediaSession.setActionHandler('nexttrack', () => playNextTrack());
+
+      // Update playback state
+      navigator.mediaSession.playbackState = audio.isPlaying ? 'playing' : 'paused';
+    }
+  }, [currentTrack, audio.isPlaying, togglePlayback, playNextTrack, playPreviousTrack]);
+
 
   // Format time display
   const formatTime = (seconds: number) => {
@@ -1265,7 +1335,7 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  const hasTracks = audio.playlist.length > 0;
+
   const activePresetLabel = selectedPreset === 'Custom' ? 'Custom Blend' : selectedPreset;
 
   const bookmarkWebsite = () => {
@@ -1279,421 +1349,192 @@ export default function App() {
   };
 
   return (
-    <div className="app dashboard">
-      <aside className="sidebar">
-        <div className="sidebar-brand">
-          <div className="brand-mark">SL</div>
-          <div>
-            <div className="brand-title">SlowedLab</div>
-            <div className="brand-subtitle">Audio Control Center</div>
-          </div>
-        </div>
+    <div className="app">
+      {/* Top Bar - Floating */}
+      <div className="top-bar-container">
+        <Topbar
+          currentTrackName={currentTrack?.file.name || 'No track loaded'}
+          audio={audio}
+          selectedPreset={selectedPreset}
+          applyPreset={applyPreset}
+          PRESETS={PRESETS}
+          userPresets={userPresets}
+          presetNameInput={presetNameInput}
+          setPresetNameInput={setPresetNameInput}
+          saveUserPreset={saveUserPreset}
+          handleFileUpload={handleFileUpload}
+          exportSelection={exportSelection}
+          setShowBugModal={setShowBugModal}
+          setBugMessage={setBugMessage}
+          togglePlayback={togglePlayback}
+          currentTrack={currentTrack}
+        />
+      </div>
 
-        <div className="sidebar-block">
-          <div className="sidebar-label">Session Info</div>
-          <div className="session-info">
-            <div className="session-line">
-              <span className="pill">Track</span>
-              <span className="session-value">{currentTrack?.file.name || 'None loaded'}</span>
-            </div>
-            <div className="session-line">
-              <span className="pill">Status</span>
-              <span className={`pill ${audio.isPlaying ? 'pill-live' : ''}`}>{audio.isPlaying ? 'Playing' : 'Stopped'}</span>
-            </div>
-            <div className="session-line">
-              <span className="pill">Preset</span>
-              <span className="session-value">{activePresetLabel}</span>
-            </div>
-            <button className="chip-button ghost" onClick={resetSession}>Reset Session</button>
-          </div>
-        </div>
-
-        <div className="sidebar-block effects-panel">
-          <div className="effects-header">
-            <h3>🎛️ Effects</h3>
-            <button className="chip-button ghost" onClick={resetPresets}>Reset</button>
-          </div>
-          <div className="mini-sliders effects-scroll">
-            <label>Playback Rate <span>{effects.playbackRate.toFixed(2)}x</span></label>
-            <input type="range" min="0.5" max="1.5" step="0.01" value={effects.playbackRate} onChange={(e) => { setEffects(prev => ({ ...prev, playbackRate: parseFloat(e.target.value) })); setSelectedPreset('Custom'); }} />
-            <label>Reverb <span>{effects.reverbAmount}%</span></label>
-            <input type="range" min="0" max="100" step="1" value={effects.reverbAmount} onChange={(e) => { setEffects(prev => ({ ...prev, reverbAmount: parseInt(e.target.value) })); setSelectedPreset('Custom'); }} />
-            <label>Bass <span>{effects.bassBoost} dB</span></label>
-            <input type="range" min="-40" max="40" step="1" value={effects.bassBoost} onChange={(e) => { setEffects(prev => ({ ...prev, bassBoost: parseInt(e.target.value) })); setSelectedPreset('Custom'); }} />
-            <label>Treble <span>{effects.trebleBoost} dB</span></label>
-            <input type="range" min="-40" max="40" step="1" value={effects.trebleBoost} onChange={(e) => { setEffects(prev => ({ ...prev, trebleBoost: parseInt(e.target.value) })); setSelectedPreset('Custom'); }} />
-            <label>Compression <span>{effects.compression}%</span></label>
-            <input type="range" min="0" max="100" step="1" value={effects.compression} onChange={(e) => { setEffects(prev => ({ ...prev, compression: parseInt(e.target.value) })); setSelectedPreset('Custom'); }} />
-            <label>Distortion <span>{effects.distortion}%</span></label>
-            <input type="range" min="0" max="100" step="1" value={effects.distortion} onChange={(e) => { setEffects(prev => ({ ...prev, distortion: parseInt(e.target.value) })); setSelectedPreset('Custom'); }} />
-          </div>
-          <div className="preset-tools">
-            <div className="preset-row">
-              <button className={`chip-button ab-compare ${abActive ? 'pill-live' : ''}`} onClick={toggleAB} title="Toggle A/B comparison">
-                {abActive ? '🎚️ A/B ON' : '🎚️ A/B OFF'}
-              </button>
-            </div>
-            {userPresets.length > 0 && (
-              <div className="user-preset-list">
-                {userPresets.map(preset => (
-                  <div className="user-preset-row" key={preset.id}>
-                    <button className="chip-button ghost" onClick={() => applyPreset(preset.name)}>{preset.name}</button>
-                    <button className="chip-button ghost" onClick={() => renameUserPreset(preset.id, prompt('Rename preset', preset.name) || preset.name)}>Rename</button>
-                    <button className="chip-button ghost" onClick={() => shareUserPreset(preset)}>Share</button>
-                    <button className="chip-button ghost" onClick={() => deleteUserPreset(preset.id)}>✕</button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </aside>
-
-      <div className="content-shell">
-        <header className="topbar">
-          <div className="topbar-left">
-            <div className="topbar-branding">
-              <h1 className="page-title">Audio Processing Console</h1>
-              <p className="eyebrow">{currentTrack?.file.name || 'No track loaded'}</p>
-            </div>
-          </div>
-
-          <div className="topbar-actions">
-            {/* GitHub Button */}
-            <button
-              className="topbar-icon-button"
-              onClick={() => window.open('https://github.com/anasfik/SlowedLab', '_blank')}
-              title="View source on GitHub"
-              aria-label="Open GitHub repository"
-            >
-              <FiGithub size={20} />
-            </button>
-            {/* Status Indicators */}
-            {/* Status Indicators */}
-            <div className="topbar-section topbar-status">
-              <div className="status-chip status-track">
-                <span className="status-icon">🎵</span>
-                <span>{audio.playlist.length} {audio.playlist.length === 1 ? 'Track' : 'Tracks'}</span>
-              </div>
-              {audio.isPlaying && (
-                <div className="status-chip status-live">
-                  <span className="status-pulse"></span>
-                  <span>Live</span>
-                </div>
-              )}
+      {/* Main Stage - Waveform & Visualizer */}
+      <div
+        className={`stage-center ${isDragging ? 'dragging' : ''}`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {currentTrack ? (
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '1200px', padding: '2rem', borderRadius: '20px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h2 className="text-gradient" style={{ margin: 0, fontSize: '2rem' }}>{currentTrack.file.name}</h2>
+              <span className="pill pill-live">{activePresetLabel}</span>
             </div>
 
-            {/* Preset Management */}
-            <div className="topbar-section topbar-presets">
-              <select
-                className="preset-select"
-                value={selectedPreset}
-                onChange={(e) => applyPreset(e.target.value)}
-                title="Select preset"
-              >
-                <optgroup label="Factory Presets">
-                  {PRESETS.map((preset) => (
-                    <option key={preset.name} value={preset.name}>{preset.icon} {preset.name}</option>
-                  ))}
-                </optgroup>
-                {userPresets.length > 0 && (
-                  <optgroup label="Your Presets">
-                    {userPresets.map((preset) => (
-                      <option key={preset.id} value={preset.name}>{preset.icon} {preset.name}</option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
-              <div className="preset-actions">
-                {/* <button 
-                  className="icon-btn" 
-                  onClick={analyzeAndRecommend} 
-                  disabled={!currentTrack?.buffer || isAnalyzing}
-                  title="AI preset suggestions"
-                >
-                  {isAnalyzing ? '⏳' : '✨'}
-                </button> */}
-                <div className="preset-save-group">
-                  <input
-                    type="text"
-                    value={presetNameInput}
-                    onChange={(e) => setPresetNameInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && saveUserPreset()}
-                    placeholder="New preset..."
-                    className="preset-input-inline"
-                    maxLength={32}
-                  />
-                  <button 
-                    className="icon-btn icon-btn-primary" 
-                    onClick={saveUserPreset} 
-                    title="Save current settings as preset (Enter)"
-                  >
-                    💾
-                  </button>
-                </div>
-              </div>
-            </div>
+            <Waveform
+              buffer={currentTrack.buffer}
+              currentTime={audio.currentTime}
+              playbackRate={effects.playbackRate}
+              bufferPosition={bufferPosition}
+              onSeek={seekTo}
+            />
 
-            <div className="topbar-divider"></div>
-
-            {/* File Actions */}
-            <div className="topbar-section topbar-file-actions">
-              <label className="icon-btn icon-btn-secondary" title="Upload audio files">
-                <FiPlay style={{ transform: 'rotate(180deg)' }} />
-                <input
-                  type="file"
-                  accept="audio/*"
-                  multiple
-                  onChange={handleFileUpload}
-                  className="file-input"
-                />
-              </label>
-              <button 
-                className="icon-btn icon-btn-secondary" 
-                onClick={exportSelection} 
-                disabled={!currentTrack?.buffer}
-                title="Export audio"
-              >
-                <FiDownload />
-              </button>
-              <button 
-                className="icon-btn" 
-                onClick={() => { setShowBugModal(true); setBugMessage(null); }}
-                title="Report a bug"
-              >
-                🐞
-              </button>
-            </div>
-
-            {/* Playback Controls */}
-            <div className="topbar-section topbar-playback">
-              <button 
-                className="btn-playback" 
-                onClick={togglePlayback} 
-                disabled={!currentTrack?.buffer || currentTrack?.isLoading}
-                title={audio.isPlaying ? 'Pause' : 'Play'}
-              >
-                {audio.isPlaying ? (
-                  <><FiPause /><span>Pause</span></>
-                ) : (
-                  <><FiPlay /><span>Play</span></>
-                )}
-              </button>
-            </div>
-          </div>
-
-          {/* AI Recommendations Dropdown
-          {showRecommendations && recommendations.length > 0 && (
-            <div className="ai-recommendations-dropdown">
-              <div className="ai-rec-header">
-                <span className="ai-rec-title">✨ AI Suggestions</span>
-                <button className="ai-rec-close" onClick={() => setShowRecommendations(false)}>✕</button>
-              </div>
-              <div className="ai-rec-list">
-                {recommendations.map((rec, idx) => (
-                  <div key={idx} className="ai-rec-item" onClick={() => { applyPreset(rec.name); setShowRecommendations(false); }}>
-                    <div className="ai-rec-content">
-                      <span className="ai-rec-icon">{rec.icon}</span>
-                      <div className="ai-rec-info">
-                        <div className="ai-rec-name">{rec.name}</div>
-                        <div className="ai-rec-reason">{rec.reason}</div>
-                      </div>
-                    </div>
-                    <div className="ai-rec-score">{rec.matchScore}%</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )} */}
-        </header>
-
-        <div className="tab-bar">
-          <button className={`tab-button ${activeTab === 'console' ? 'active' : ''}`} onClick={() => setActiveTab('console')}>Console</button>
-          <button className={`tab-button ${activeTab === 'playlist' ? 'active' : ''}`} onClick={() => setActiveTab('playlist')}>Playlist</button>
-        </div>
-
-        {!hasTracks && activeTab === 'console' ? (
-          <section className="empty-state" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
-            <div className={`empty-drop ${isDragging ? 'dragging' : ''}`}>
-              <input
-                type="file"
-                accept="audio/*"
-                onChange={handleFileUpload}
-                id="audio-upload"
-                className="file-input"
-                multiple
-              />
-              <label htmlFor="audio-upload" className="empty-cta">
-                <div className="big-upload-icon">⬆</div>
-                <div>
-                  <h2>Drop audio to start</h2>
-                  <p>Fast ingest with multi-file support and automatic waveform prep.</p>
-                  <div className="pill-row">
-                    <span className="pill">MP3</span>
-                    <span className="pill">WAV</span>
-                    <span className="pill">FLAC</span>
-                  </div>
-                </div>
-              </label>
-            </div>
-            <div className="feature-board">
-              <div className="feature-card">
-                <div className="feature-icon">🎚️</div>
-                <h3>Time Stretch</h3>
-                <p>Slow down or speed up without artifacts.</p>
-              </div>
-              <div className="feature-card">
-                <div className="feature-icon">🌊</div>
-                <h3>Reverb Lab</h3>
-                <p>Studio-grade ambience with dry/wet control.</p>
-              </div>
-              <div className="feature-card">
-                <div className="feature-icon">📊</div>
-                <h3>Live Preview</h3>
-                <p>Adjust and hear instantly with history tracking.</p>
-              </div>
-              <div className="feature-card">
-                <div className="feature-icon">💾</div>
-                <h3>Clean Exports</h3>
-                <p>Download lossless or high-bitrate formats.</p>
-              </div>
-            </div>
-          </section>
-        ) : activeTab === 'console' ? (
-          <div className="board-grid">
-            <div className="card waveform-card compact full-span">
-              <div className="waveform-top">
-                <div className="track-summary">
-                  <p className="eyebrow">Now Playing</p>
-                  <h3 className="card-title">{currentTrack?.file.name || 'Select a track'}</h3>
-                  <div className="pill-row">
-                    <span className="pill">Preset • {activePresetLabel}</span>
-                    <span className={`pill ${audio.isPlaying ? 'pill-live' : ''}`}>{audio.isPlaying ? 'Live' : 'Paused'}</span>
-                  </div>
-                </div>
-                <div className="waveform-actions">
-                  <div className="time-display">
-                    <span className="time-current">{formatTime(audio.currentTime)}</span>
-                    <span className="time-separator">/</span>
-                    <span className="time-total">{formatTime((currentTrack?.duration || 0) / effects.playbackRate)}</span>
-                  </div>
-                  <div className="transport-group">
-                    <button className="control-button" onClick={playPreviousTrack} disabled={audio.currentTrackIndex === 0}><FiSkipBack /></button>
-                    <button className="control-button" onClick={stopAudio} disabled={!currentTrack?.buffer}><FiSquare /></button>
-                    <button className="play-button-main" onClick={togglePlayback} disabled={!currentTrack?.buffer || currentTrack?.isLoading}>
-                      {audio.isPlaying ? <><FiPause /><span>Pause</span></> : <><FiPlay /><span>Play</span></>}
-                    </button>
-                    <button className="control-button" onClick={playNextTrack} disabled={audio.currentTrackIndex === audio.playlist.length - 1}><FiSkipForward /></button>
-                  </div>
-                </div>
-              </div>
-              <div className="progress-slider-container">
-                <div className="progress-slider-header">
-                  <span className="progress-label">Timeline</span>
-                  <span className="progress-time">
-                    <span className="time-current">{formatTime(audio.currentTime)}</span>
-                    <span className="time-sep">•</span>
-                    <span className="time-total">{formatTime((currentTrack?.duration || 0) / effects.playbackRate)}</span>
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={(currentTrack?.duration || 0) / effects.playbackRate}
-                  step={0.01}
-                  value={currentTrack ? Math.min(audio.currentTime, (currentTrack.duration / effects.playbackRate)) : 0}
-                  onChange={handleProgressDrag}
-                  className="progress-slider slider"
-                  title="Seek timeline"
-                />
-              </div>
-              <div className="volume-inline">
-                <div className="volume-header">
-                  <span className="volume-icon">🔊</span>
-                  <span className="volume-label">Volume</span>
-                </div>
-                <div className="volume-control">
-                  <input
-                    type="range"
-                    min="0"
-                    max="1.2"
-                    step="0.01"
-                    value={volume}
-                    onChange={(e) => setVolume(parseFloat(e.target.value))}
-                    className="slider volume-slider"
-                    title="Adjust volume"
-                  />
-                  <span className="volume-value">{Math.round(volume * 100)}%</span>
-                </div>
-              </div>
-              <Waveform
-                buffer={currentTrack?.buffer || null}
-                currentTime={audio.currentTime}
-                playbackRate={effects.playbackRate}
-                bufferPosition={bufferPosition}
-                onSeek={seekTo}
-              />
+            {/* Time Display */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--color-text-secondary)', fontSize: '0.9rem', marginTop: '0.5rem' }}>
+              <span>{formatTime(audio.currentTime)}</span>
+              <span>{formatTime((currentTrack.duration || 0) / effects.playbackRate)}</span>
             </div>
           </div>
         ) : (
-          <div className="playlist-tab">
-            <div className="card playlist-card compact">
-              <div className="panel-header">
-                <div>
-                  <p className="eyebrow">Playlist Manager</p>
-                  <h3>{audio.playlist.length} Tracks</h3>
-                </div>
-                <div className="panel-actions">
-                  <label htmlFor="add-more" className="button-secondary">
-                    + Add
-                    <input
-                      type="file"
-                      accept="audio/*"
-                      onChange={handleFileUpload}
-                      id="add-more"
-                      className="file-input"
-                      multiple
-                    />
-                  </label>
-                  <button className="button-secondary" onClick={clearPlaylist}>Clear</button>
-                </div>
-              </div>
-              <div className="playlist-items board-scroll">
-                {audio.playlist.map((track, index) => (
-                  <div
-                    key={track.id}
-                    className={`playlist-item ${index === audio.currentTrackIndex ? 'active' : ''}`}
-                    onClick={() => playTrack(index)}
-                  >
-                    <div className="playlist-item-icon">
-                      {index === audio.currentTrackIndex && audio.isPlaying ? '▶' : '🎵'}
-                    </div>
-                    <div className="playlist-item-info">
-                      <div className="playlist-item-name">{track.file.name}</div>
-                      <div className="playlist-item-meta">
-                        {track.isLoading ? 'Loading…' : `${formatTime(track.duration)} • ${(track.file.size / 1024 / 1024).toFixed(1)} MB`}
-                      </div>
-                    </div>
-                    <div className="playlist-item-actions">
-                      <button className="chip-button ghost" onClick={(e) => { e.stopPropagation(); moveTrack(index, index - 1); }}>↑</button>
-                      <button className="chip-button ghost" onClick={(e) => { e.stopPropagation(); moveTrack(index, index + 1); }}>↓</button>
-                      <button
-                        className="playlist-item-remove"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          removeTrack(track.id);
-                        }}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+          <label className="glass-panel empty-state clickable-dropzone" style={{ padding: '4rem', textAlign: 'center', borderRadius: '24px', display: 'block', cursor: 'pointer' }}>
+            <input type="file" accept="audio/*" onChange={handleFileUpload} multiple style={{ display: 'none' }} />
+            <h1 className="text-gradient" style={{ fontSize: '3rem', marginBottom: '1rem' }}>SlowedLab</h1>
+            <p style={{ color: 'var(--color-text-secondary)', marginBottom: '2rem' }}>Drop audio files or click anywhere to begin your sonic journey.</p>
+            <div className="upload-hint">
+              <span className="primary-action" style={{ fontSize: '1.2rem', padding: '1rem 2rem', display: 'inline-block' }}>
+                Browse Files
+              </span>
             </div>
-          </div>
+          </label>
         )}
       </div>
+
+      {/* Dock - Controls */}
+      <div className="dock-container glass-panel">
+        {/* Left: Settings */}
+        <button className="dock-icon-btn" onClick={() => setIsSidebarOpen(true)} title="Settings">
+          <FiSettings />
+        </button>
+
+        {/* Center: Transport */}
+        <div className="transport-controls">
+          <button className="dock-icon-btn" onClick={playPreviousTrack} disabled={audio.currentTrackIndex === 0} title="Previous">
+            <FiSkipBack />
+          </button>
+          <button className="play-btn" onClick={togglePlayback} disabled={!currentTrack?.buffer || currentTrack?.isLoading} title={audio.isPlaying ? 'Pause' : 'Play'}>
+            {audio.isPlaying ? <FiPause /> : <FiPlay />}
+          </button>
+          <button className="dock-icon-btn" onClick={playNextTrack} disabled={audio.currentTrackIndex === audio.playlist.length - 1} title="Next">
+            <FiSkipForward />
+          </button>
+        </div>
+
+        {/* Right: Volume & Playlist */}
+        <div className="dock-right">
+          <div className="volume-control">
+            <span className="volume-icon"><FiVolume2 /></span>
+            <input
+              type="range"
+              min="0" max="1.2" step="0.01"
+              value={volume}
+              onChange={(e) => setVolume(parseFloat(e.target.value))}
+              className="volume-slider"
+            />
+          </div>
+          <button className={`dock-icon-btn ${isPlaylistOpen ? 'active' : ''}`} onClick={() => setIsPlaylistOpen(true)} title="Playlist">
+            <FiMusic />
+          </button>
+        </div>
+      </div>
+
+      {/* Drawers */}
+      <Sidebar
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        currentTrackName={currentTrack?.file.name || 'None loaded'}
+        isPlaying={audio.isPlaying}
+        activePresetLabel={activePresetLabel}
+        effects={effects}
+        setEffects={setEffects}
+        setSelectedPreset={setSelectedPreset}
+        abActive={abActive}
+        toggleAB={toggleAB}
+        userPresets={userPresets}
+        applyPreset={applyPreset}
+        renameUserPreset={renameUserPreset}
+        shareUserPreset={shareUserPreset}
+        deleteUserPreset={deleteUserPreset}
+        resetSession={resetSession}
+        resetPresets={resetPresets}
+      />
+
+      {/* Playlist Drawer */}
+      <div className={`sidebar-drawer drawer-right glass-panel ${isPlaylistOpen ? 'open' : ''}`}>
+        <button className="drawer-close-btn" onClick={() => setIsPlaylistOpen(false)}>×</button>
+        <h3 style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>Playlist ({audio.playlist.length})</h3>
+
+        <div className="panel-actions" style={{ marginBottom: '1rem', display: 'flex', gap: '0.5rem' }}>
+          <label htmlFor="add-more-playlist" className="glass-button" style={{ padding: '0.5rem 1rem', borderRadius: '8px', cursor: 'pointer', fontSize: '0.9rem' }}>
+            + Add Tracks
+            <input
+              type="file"
+              accept="audio/*"
+              onChange={handleFileUpload}
+              id="add-more-playlist"
+              style={{ display: 'none' }}
+              multiple
+            />
+          </label>
+          <button className="glass-button" onClick={clearPlaylist} style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.9rem' }}>Clear All</button>
+        </div>
+
+        <div className="playlist-items board-scroll" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          {audio.playlist.map((track, index) => (
+            <div
+              key={track.id}
+              className={`playlist-item ${index === audio.currentTrackIndex ? 'active' : ''}`}
+              onClick={() => playTrack(index)}
+              style={{
+                padding: '0.75rem',
+                borderRadius: '12px',
+                background: index === audio.currentTrackIndex ? 'rgba(var(--color-primary-rgb), 0.15)' : 'rgba(255,255,255,0.03)',
+                border: index === audio.currentTrackIndex ? '1px solid var(--color-primary)' : '1px solid transparent',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.75rem'
+              }}
+            >
+              <div className="playlist-item-icon">
+                {index === audio.currentTrackIndex && audio.isPlaying ? <FiPlay size={14} /> : <FiMusic size={14} />}
+              </div>
+              <div className="playlist-item-info" style={{ flex: 1, overflow: 'hidden' }}>
+                <div className="playlist-item-name" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 500 }}>{track.file.name}</div>
+                <div className="playlist-item-meta" style={{ fontSize: '0.75rem', color: 'var(--color-text-tertiary)' }}>
+                  {track.isLoading ? 'Loading…' : `${formatTime(track.duration)}`}
+                </div>
+              </div>
+              <button
+                className="playlist-item-remove"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeTrack(track.id);
+                }}
+                style={{ background: 'transparent', border: 'none', color: 'var(--color-text-tertiary)', cursor: 'pointer' }}
+              >
+                <FiX />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Overlays */}
+      <div className={`drawer-overlay ${isSidebarOpen || isPlaylistOpen ? 'open' : ''}`} onClick={() => { setIsSidebarOpen(false); setIsPlaylistOpen(false); }} />
 
       {currentTrack?.isLoading && (
         <div className="loading-overlay">
@@ -1704,7 +1545,7 @@ export default function App() {
 
       {loadingProgress && (
         <div className="loading-toast">
-          <div className="loading-spinner"></div>
+          <div className="loading-spinner-mini"></div>
           <div className="loading-content">
             <span>Loading {loadingProgress.fileName}...</span>
             <div className="progress-bar">
@@ -1716,7 +1557,7 @@ export default function App() {
 
       {audio.error && (
         <div className="error-toast">
-          <svg viewBox="0 0 24 24" fill="currentColor">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
             <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
           </svg>
           {audio.error}

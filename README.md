@@ -58,7 +58,7 @@ is git-ignored.
 | `LINKIMPORT_CONCURRENCY` | `2` | Parallel yt-dlp downloads |
 | `AUDIO_CACHE_MB` | `1024` | Audio cache cap |
 | `AUDIO_CACHE_FILES` | `100` | Max cached files |
-| `YTDLP_COOKIES_FILE` | unset | Set to `/app/data/cookies.txt` when YouTube serves bot-checks |
+| `YTDLP_COOKIES_FILE` | auto | Explicit cookie path override; otherwise `backend/data/cookies.txt` is auto-detected |
 | `BACKEND_PROXY_URL` (frontend) | `http://backend:4001` | Where the dev server forwards same-origin `/api/*` calls (docker service DNS; host `npm start` falls back to `http://localhost:4001`) |
 
 Live source mounts (`backend/src`, `backend/tsconfig.json`, `frontend/src`,
@@ -74,10 +74,31 @@ Downloaded audio persists in `backend/data/audio-cache` (host-mounted).
 
 ### YouTube bot-checks / 403s
 
-1. Export a Netscape `cookies.txt` from a logged-out browser tab.
-2. Save it as `backend/data/cookies.txt`.
-3. Uncomment `YTDLP_COOKIES_FILE=/app/data/cookies.txt` in
-   `docker-compose.yml` and restart: `docker compose up -d`.
+YouTube challenges datacenter IPs with "Sign in to confirm you're not a bot".
+No extractor option avoids it — cookies are the fix.
+
+1. Export a Netscape `cookies.txt` from a browser where YouTube works:
+
+   ```bash
+   # on a machine with Chrome logged out of (or into) YouTube
+   yt-dlp --cookies-from-browser chrome --cookies cookies.txt "https://www.youtube.com/"
+   # or export the extension "Get cookies.txt LOCALLY" while on youtube.com
+   ```
+
+2. Save it as `backend/data/cookies.txt` (git-ignored — never commit it).
+   The backend **auto-detects** that path; no restart or compose edit needed.
+
+3. Confirm it was picked up:
+
+   ```bash
+   curl -s http://localhost:4001/api/health
+   # "linkImport":{"ytDlp":"yt-dlp","cookies":{"configured":true,...}}
+   ```
+
+`YTDLP_COOKIES_FILE` still works as an explicit override if you keep the file
+elsewhere (set it in `docker-compose.yml`, uncommented). SoundCloud marks most
+streams DRM-protected for third-party clients, so some SoundCloud tracks cannot
+be imported at all — file upload still works.
 
 ## Deploying (VPS)
 
@@ -177,9 +198,9 @@ VM deploy notes (also see above):
 - The backend image ships `yt-dlp`, `ffmpeg`, and `deno` already.
 - Cap downloads with `MAX_AUDIO_MINUTES` (default 15),
   `LINKIMPORT_CONCURRENCY` (default 2), `AUDIO_CACHE_MB` (default 1024).
-- If YouTube serves bot-checks or 403s, export a Netscape `cookies.txt`
-  from a logged-out browser tab into `backend/data/cookies.txt` and
-  uncomment `YTDLP_COOKIES_FILE` in `docker-compose.yml`.
+- If YouTube serves bot-checks or 403s, drop a Netscape `cookies.txt` into
+  `backend/data/cookies.txt`; it is auto-detected (see "YouTube bot-checks /
+  403s" above).
 
 ## Tech Stack
 

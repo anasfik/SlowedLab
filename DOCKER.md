@@ -58,6 +58,20 @@ The frontend always calls the API through same-origin relative URLs
 every visitor whose machine is not yours. Behind a proxy, forward `/api/` to
 the backend; in local Docker, `frontend/src/setupProxy.js` does it for you.
 
+## Link import is blocked by the provider
+
+YouTube challenges datacenter IPs ("Sign in to confirm you're not a bot") and
+SoundCloud marks most streams DRM-protected. Neither is a container problem:
+no yt-dlp option fixes it. Serve cookies to recover YouTube:
+
+1. Export a Netscape `cookies.txt` on a machine where YouTube works:
+   `yt-dlp --cookies-from-browser chrome --cookies cookies.txt "https://www.youtube.com/"`
+2. Copy it to `backend/data/cookies.txt` (auto-detected, no restart needed)
+3. Check `curl -s http://localhost:4001/api/health` — it reports whether
+   cookies were found
+
+File upload works regardless; it never touches the server.
+
 ## HTTPS in front of the app
 
 ```bash

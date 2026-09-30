@@ -8,7 +8,7 @@ import cors from "cors";
 import compression from "compression";
 import fs from "fs/promises";
 import path from "path";
-import { registerLinkImportRoutes } from "./linkImport";
+import { registerLinkImportRoutes, linkImportDiagnostics } from "./linkImport";
 
 const app = express();
 
@@ -72,7 +72,11 @@ app.post("/api/report-bug", async (req: Request, res: Response) => {
  * Health check endpoint
  */
 app.get("/api/health", (req: Request, res: Response) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
+  res.json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    linkImport: linkImportDiagnostics(),
+  });
 });
 
 /**

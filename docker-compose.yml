@@ -18,8 +18,8 @@ services:
       - LINKIMPORT_CONCURRENCY=2
       - AUDIO_CACHE_MB=1024
       - AUDIO_CACHE_FILES=100
-      # Optional: mount a Netscape cookies.txt to ./backend/data/cookies.txt
-      # and uncomment the next line when YouTube serves bot-checks/403s.
+      # Link import reads backend/data/cookies.txt automatically when present.
+      # Only set YTDLP_COOKIES_FILE if you keep the cookie file elsewhere.
       # - YTDLP_COOKIES_FILE=/app/data/cookies.txt
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4001/api/health"]

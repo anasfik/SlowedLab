@@ -14,12 +14,14 @@
 import { execFile, spawn } from "child_process";
 import type { Express, Request, Response } from "express";
 import fs from "fs/promises";
+import { existsSync } from "fs";
 import path from "path";
 
 export type Platform = "youtube" | "soundcloud";
 
 const YTDLP_BIN = process.env.YTDLP_BIN || "yt-dlp";
 const CACHE_DIR = path.resolve(process.cwd(), "data", "audio-cache");
+const DEFAULT_COOKIES_FILE = path.resolve(process.cwd(), "data", "cookies.txt");
 const MAX_MINUTES = Number(process.env.MAX_AUDIO_MINUTES || 15);
 const MAX_CONCURRENT = Number(process.env.LINKIMPORT_CONCURRENCY || 2);
 const MAX_CACHE_MB = Number(process.env.AUDIO_CACHE_MB || 1024);
@@ -78,8 +80,32 @@ function sanitizeTitle(title: string): string {
   );
 }
 
+/**
+ * Cookies are optional. YTDLP_COOKIES_FILE wins when set; otherwise a
+ * cookies.txt sitting next to the cache (backend/data/cookies.txt) is picked
+ * up automatically, so dropping the file in needs no restart or compose edit.
+ * Returns undefined when no usable cookie file exists — passing a missing
+ * --cookies path would make yt-dlp fail outright.
+ */
+function cookiesFile(): string | undefined {
+  const configured = process.env.YTDLP_COOKIES_FILE;
+  if (configured) {
+    return existsSync(configured) ? configured : undefined;
+  }
+  return existsSync(DEFAULT_COOKIES_FILE) ? DEFAULT_COOKIES_FILE : undefined;
+}
+
+export function linkImportDiagnostics() {
+  return {
+    ytDlp: YTDLP_BIN,
+    cookies: cookiesFile()
+      ? { configured: true, source: "auto-detected" }
+      : { configured: false, hint: "Drop a Netscape cookies.txt at backend/data/cookies.txt" },
+  };
+}
+
 function cookieArgs(): string[] {
-  const file = process.env.YTDLP_COOKIES_FILE;
+  const file = cookiesFile();
   return file ? ["--cookies", file] : [];
 }
 
@@ -88,7 +114,29 @@ function extraArgs(): string[] {
   return raw ? raw.split(/\s+/) : [];
 }
 
-async function ytDlpJson(url: string): Promise<any> {
+const BOT_CHECK_RE = /sign in to confirm|not a bot|403|forbidden/i;
+const DRM_RE = /drm protected/i;
+
+/**
+ * YouTube blocks datacenter IPs with a "sign in to confirm you're not a bot"
+ * challenge; cookies are the only reliable fix. SoundCloud marks most streams
+ * DRM-protected for third-party clients. Neither is the user's fault, so the
+ * message says what happened and what still works.
+ */
+function friendlyError(rawTail: string, platform: Platform): string {
+  if (DRM_RE.test(rawTail)) {
+    return `That ${platform === "soundcloud" ? "SoundCloud" : ""} track is DRM-protected and can't be imported. Try another track or upload the audio file directly.`.replace(
+      /\s+/g,
+      " "
+    );
+  }
+  if (BOT_CHECK_RE.test(rawTail)) {
+    return "YouTube is blocking downloads from this server right now, so the link couldn't be read. Try again later, or upload the audio file directly.";
+  }
+  return `Could not read that link (${rawTail.slice(0, 160)})`;
+}
+
+async function ytDlpJson(url: string, platform: Platform): Promise<any> {
   return new Promise((resolve, reject) => {
     execFile(
       YTDLP_BIN,
@@ -107,14 +155,13 @@ async function ytDlpJson(url: string): Promise<any> {
       (err, stdout, stderr) => {
         if (err) {
           const tail = String(stderr || err.message).slice(-500);
-          if (/sign in to confirm|not a bot|403|forbidden/i.test(tail)) {
-            return reject(
-              new Error(
-                "YouTube blocked this request from the server. Set YTDLP_COOKIES_FILE and retry."
-              )
+          if (BOT_CHECK_RE.test(tail)) {
+            console.warn(
+              `[link-import] ${platform} bot-check blocked by the provider. ` +
+                `Serve cookies to recover: see README "YouTube bot-checks / 403s".`
             );
           }
-          return reject(new Error(`Could not read that link (${tail.slice(0, 160)})`));
+          return reject(new Error(friendlyError(tail, platform)));
         }
         try {
           resolve(JSON.parse(String(stdout).split("\n").find((l) => l.trim()) || "{}"));
@@ -253,10 +300,8 @@ function runDownload(job: Job): Promise<void> {
     child.on("close", async (code) => {
       clearTimeout(timer);
       if (code !== 0) {
-        if (/sign in to confirm|not a bot|403|forbidden/i.test(errTail)) {
-          return reject(
-            new Error("YouTube blocked this download. Set YTDLP_COOKIES_FILE and retry.")
-          );
+        if (BOT_CHECK_RE.test(errTail) || DRM_RE.test(errTail)) {
+          return reject(new Error(friendlyError(errTail, job.platform)));
         }
         return reject(new Error(`Download failed (${errTail.slice(-180) || `exit ${code}`})`));
       }
@@ -307,7 +352,7 @@ export function registerLinkImportRoutes(app: Express): void {
       return res.status(400).json({ error: "Only YouTube and SoundCloud links are supported." });
     }
     try {
-      const info = await ytDlpJson(url.trim());
+      const info = await ytDlpJson(url.trim(), platform);
       const duration = Math.round(Number(info.duration || 0));
       if (duration > MAX_MINUTES * 60) {
         return res.status(400).json({ error: `Track too long (max ${MAX_MINUTES} minutes).` });
@@ -351,7 +396,7 @@ export function registerLinkImportRoutes(app: Express): void {
       return res.status(429).json({ error: "Download queue is full. Try again shortly." });
     }
     try {
-      const info = await ytDlpJson(url.trim());
+      const info = await ytDlpJson(url.trim(), platform);
       const duration = Math.round(Number(info.duration || 0));
       if (duration > MAX_MINUTES * 60) {
         return res.status(400).json({ error: `Track too long (max ${MAX_MINUTES} minutes).` });

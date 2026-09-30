@@ -191,7 +191,7 @@ When SlowedLab is shared on social platforms:
    ```
    1. Go to: https://search.google.com/search-console
    2. Select "URL prefix"
-   3. Enter: https://slowedlab.com
+   3. Enter: https://slowedlab.app
    4. Verify ownership (DNS or HTML file)
    5. Submit robots.txt and sitemap.xml
    ```
@@ -200,7 +200,7 @@ When SlowedLab is shared on social platforms:
 
    ```
    1. Go to: https://www.bing.com/webmasters/
-   2. Add site: https://slowedlab.com
+   2. Add site: https://slowedlab.app
    3. Verify ownership
    4. Submit sitemap
    ```

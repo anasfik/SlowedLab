@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { FiX } from 'react-icons/fi';
 
 interface Props {
   open: boolean;
@@ -52,16 +53,17 @@ export default function BugReportPanel({
   const canSubmit = title.trim().length > 0 && description.trim().length > 0 && !submitting;
 
   return (
-    <div className={`drawer-overlay ${open ? 'open' : ''}`} onClick={onClose}>
-      <aside className={`drawer ${open ? 'open' : ''}`} onClick={(e) => e.stopPropagation()}>
+    <div className="modal-layer" onClick={onClose}>
+      <aside className="report-dialog" role="dialog" aria-modal="true" aria-labelledby="report-title" onClick={(e) => e.stopPropagation()}>
         <div className="drawer-header">
-          <h3>Report a Bug</h3>
-          <button className="icon-btn" onClick={onClose} title="Close">✕</button>
+          <div><p className="overline">Feedback</p><h2 id="report-title">Report a problem</h2></div>
+          <button className="icon-button" onClick={onClose} aria-label="Close report form"><FiX /></button>
         </div>
         <div className="drawer-body">
           <div className="form-row">
-            <label>Title <span className="muted">({title.length}/{TITLE_MAX})</span></label>
+            <label htmlFor="bug-title">Title <span>({title.length}/{TITLE_MAX})</span></label>
             <input
+              id="bug-title"
               value={title}
               onChange={(e) => onChangeTitle(e.target.value.slice(0, TITLE_MAX))}
               maxLength={TITLE_MAX}
@@ -70,8 +72,9 @@ export default function BugReportPanel({
             />
           </div>
           <div className="form-row">
-            <label>Description <span className="muted">({description.length}/{DESC_MAX})</span></label>
+            <label htmlFor="bug-description">What happened? <span>({description.length}/{DESC_MAX})</span></label>
             <textarea
+              id="bug-description"
               value={description}
               onChange={(e) => onChangeDescription(e.target.value.slice(0, DESC_MAX))}
               rows={8}
@@ -80,8 +83,9 @@ export default function BugReportPanel({
             />
           </div>
           <div className="form-row">
-            <label>Email <span className="muted">optional</span></label>
+            <label htmlFor="bug-email">Email <span>optional</span></label>
             <input
+              id="bug-email"
               type="email"
               value={email}
               onChange={(e) => onChangeEmail(e.target.value.slice(0, EMAIL_MAX))}
@@ -89,11 +93,11 @@ export default function BugReportPanel({
               placeholder="you@example.com"
             />
           </div>
-          {message && <div className="notice info">{message}</div>}
+          {message && <div className="form-message" role="status">{message}</div>}
         </div>
         <div className="drawer-actions">
-          <button className="button-secondary" onClick={onClose}>Cancel</button>
-          <button className="button-primary" disabled={!canSubmit} onClick={onSubmit}>
+          <button className="secondary-button" onClick={onClose}>Cancel</button>
+          <button className="primary-button" disabled={!canSubmit} onClick={onSubmit}>
             {submitting ? 'Submitting…' : 'Submit'}
           </button>
         </div>

@@ -13,7 +13,7 @@ This guide will help you submit SlowedLab to search engines and set up monitorin
 1. Go to: **https://search.google.com/search-console**
 2. Click **"Start now"** or **"+ Create property"**
 3. Choose **"URL prefix"** option
-4. Enter: **https://slowedlab.com**
+4. Enter: **https://slowedlab.app**
 
 ### Verify Ownership
 
@@ -32,7 +32,7 @@ Choose one of these methods:
 #### Option B: HTML File
 
 1. Download the HTML file Google provides
-2. Upload to: `https://slowedlab.com/google[xxxxx].html`
+2. Upload to: `https://slowedlab.app/google[xxxxx].html`
 3. Click **"Verify"** in Google Search Console
 
 #### Option C: Meta Tag
@@ -47,7 +47,7 @@ Choose one of these methods:
 
 1. In Search Console left menu: **Sitemaps**
 2. Click **"New sitemap"**
-3. Enter: `https://slowedlab.com/sitemap.xml`
+3. Enter: `https://slowedlab.app/sitemap.xml`
 4. Click **Submit**
 
 ### Monitor Performance
@@ -65,7 +65,7 @@ Choose one of these methods:
 
 1. Go to: **https://www.bing.com/webmasters/home**
 2. Click **"Add a site"**
-3. Enter: **https://slowedlab.com**
+3. Enter: **https://slowedlab.app**
 
 ### Verify Ownership
 
@@ -76,7 +76,7 @@ Choose one of these methods:
 ### Submit Sitemap
 
 1. Click **"Sitemaps"** in left menu
-2. Add: `https://slowedlab.com/sitemap.xml`
+2. Add: `https://slowedlab.app/sitemap.xml`
 3. Submit
 
 ---
@@ -128,14 +128,14 @@ Track important actions:
 ### Facebook Open Graph Debugger
 
 1. Go to: **https://developers.facebook.com/tools/debug/sharing**
-2. Enter: **https://slowedlab.com**
+2. Enter: **https://slowedlab.app**
 3. Click **"Scrape Again"**
 4. Verify preview looks correct
 
 ### Twitter Card Validator
 
 1. Go to: **https://cards-dev.twitter.com/validator**
-2. Enter: **https://slowedlab.com**
+2. Enter: **https://slowedlab.app**
 3. Verify preview appears correct
 4. Consider applying for verified account: **@gwhyyy**
 
@@ -264,7 +264,7 @@ Track important actions:
 
 ### Not showing in Google results?
 
-- Check if site is indexed: `site:slowedlab.com`
+- Check if site is indexed: `site:slowedlab.app`
 - Wait 4-8 weeks for initial indexing
 - Check Search Console for crawl errors
 - Ensure robots.txt allows crawling

@@ -12,6 +12,20 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=4001
+      - MAX_AUDIO_MINUTES=15
+      - LINKIMPORT_CONCURRENCY=2
+      - AUDIO_CACHE_MB=1024
+      - AUDIO_CACHE_FILES=100
+      # Optional: mount a Netscape cookies.txt to ./backend/data/cookies.txt
+      # and uncomment the next line when YouTube serves bot-checks/403s.
+      # - YTDLP_COOKIES_FILE=/app/data/cookies.txt
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4001/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
     networks:
       - slowedlab
 
@@ -30,11 +44,19 @@ services:
       - CHOKIDAR_USEPOLLING=true
       - PORT=4000
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
       - slowedlab
     stdin_open: true
     tty: true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:4000"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
 
 networks:
   slowedlab:

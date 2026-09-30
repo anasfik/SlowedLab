@@ -17,7 +17,7 @@ This document outlines all SEO improvements implemented for SlowedLab to increas
 ### 2. **Open Graph Tags** (Social Media Optimization)
 
 - `og:type`: website
-- `og:url`: https://slowedlab.com
+- `og:url`: https://slowedlab.app
 - `og:title`: Professional title for social sharing
 - `og:description`: Engaging description for social media
 - `og:image`: Screenshot for visual social sharing
@@ -143,7 +143,7 @@ This helps search engines understand:
 1. **Verify in Google Search Console**
 
    ```
-   Add property → Select "URL prefix" → https://slowedlab.com
+   Add property → Select "URL prefix" → https://slowedlab.app
    Verify ownership → Follow steps for DNS verification
    Submit sitemap.xml
    ```

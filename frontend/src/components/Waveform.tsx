@@ -70,16 +70,18 @@ export default function Waveform({ buffer, currentTime, playbackRate, onSeek, he
 
     ctx.clearRect(0, 0, w, h);
 
-    // Background
-    const bg = ctx.createLinearGradient(0, 0, w, 0);
-    bg.addColorStop(0, 'rgba(255,255,255,0.02)');
-    bg.addColorStop(1, 'rgba(255,255,255,0.02)');
-    ctx.fillStyle = bg;
+    const styles = getComputedStyle(document.documentElement);
+    const waveformColor = styles.getPropertyValue('--waveform').trim() || '#ffb45b';
+    const waveformPlayed = styles.getPropertyValue('--waveform-played').trim() || '#ff8d3a';
+    const waveformMuted = styles.getPropertyValue('--waveform-muted').trim() || '#4b4d48';
+    const playheadColor = styles.getPropertyValue('--playhead').trim() || '#fff7ec';
+
+    ctx.fillStyle = styles.getPropertyValue('--waveform-bg').trim() || '#171915';
     ctx.fillRect(0, 0, w, h);
 
     if (!buffer || peaks.length === 0) {
       // Placeholder center line
-      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.strokeStyle = waveformMuted;
       ctx.beginPath();
       ctx.moveTo(0, h / 2);
       ctx.lineTo(w, h / 2);
@@ -122,21 +124,18 @@ export default function Waveform({ buffer, currentTime, playbackRate, onSeek, he
 
       if (x + barW < 0 || x > w) continue; // clip to viewport
 
-      const grad = ctx.createLinearGradient(0, y, 0, y + barH);
-      grad.addColorStop(0, '#8b5cf6'); // Electric Violet
-      grad.addColorStop(1, '#22d3ee'); // Cyan
-      ctx.fillStyle = grad;
+      ctx.fillStyle = rawX <= playheadPixel ? waveformPlayed : waveformColor;
       ctx.fillRect(x, y, Math.max(1, barW - 0.5), barH);
     }
 
     // Dim the unplayed portion for visual feedback relative to playhead
     // The dimming should cover everything after the actual playhead position in the scaled content
     const dimStartX = Math.floor(playheadPixel - panOffset);
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fillStyle = 'rgba(13, 15, 12, 0.36)';
     ctx.fillRect(dimStartX, 0, scaledW - playheadPixel, h);
 
     // Playhead line
-    ctx.strokeStyle = '#a78bfa'; // Primary hover color
+    ctx.strokeStyle = playheadColor;
     ctx.lineWidth = 2.5;
     ctx.beginPath();
     ctx.moveTo(Math.floor(playheadX) + 0.5, 0);
@@ -171,14 +170,36 @@ export default function Waveform({ buffer, currentTime, playbackRate, onSeek, he
     [buffer, playbackRate, currentTime, bufferPosition, onSeek]
   );
 
+  const totalDuration = buffer ? buffer.duration / Math.max(0.0001, playbackRate) : 0;
+
   return (
     <div ref={containerRef} className="waveform-canvas full-width" style={{ height }}>
       <canvas
         ref={canvasRef}
-        onPointerDown={handlePointer}
-        onPointerMove={(e) => {
-          if (e.buttons === 1) handlePointer(e);
+        role="slider"
+        tabIndex={buffer ? 0 : -1}
+        aria-label="Track position"
+        aria-valuemin={0}
+        aria-valuemax={Math.round(totalDuration)}
+        aria-valuenow={Math.round(currentTime)}
+        aria-valuetext={`${Math.floor(currentTime / 60)} minutes ${Math.floor(currentTime % 60)} seconds`}
+        onKeyDown={(event) => {
+          if (!buffer) return;
+          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+            event.preventDefault();
+            onSeek(Math.max(0, Math.min(totalDuration, currentTime + (event.key === 'ArrowLeft' ? -5 : 5))));
+          }
+          if (event.key === 'Home') { event.preventDefault(); onSeek(0); }
+          if (event.key === 'End') { event.preventDefault(); onSeek(totalDuration); }
         }}
+        onPointerDown={(event) => {
+          event.currentTarget.setPointerCapture(event.pointerId);
+          handlePointer(event);
+        }}
+        onPointerMove={(e) => {
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) handlePointer(e);
+        }}
+        onPointerUp={(event) => event.currentTarget.releasePointerCapture(event.pointerId)}
         style={{ display: 'block' }}
       />
     </div>

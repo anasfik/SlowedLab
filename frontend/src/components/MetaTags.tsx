@@ -22,7 +22,7 @@ export const useMetaTags = (props: MetaTagProps) => {
     ogImage,
     ogTitle,
     ogDescription,
-    canonicalUrl = 'https://slowedlab.com',
+    canonicalUrl = 'https://slowedlab.app',
     twitterCard = 'summary_large_image',
   } = props;
 

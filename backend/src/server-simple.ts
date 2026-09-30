@@ -6,9 +6,9 @@
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import compression from "compression";
-import ytdl from "ytdl-core";
 import fs from "fs/promises";
 import path from "path";
+import { registerLinkImportRoutes } from "./linkImport";
 
 const app = express();
 
@@ -76,85 +76,17 @@ app.get("/api/health", (req: Request, res: Response) => {
 });
 
 /**
- * Fetch audio from YouTube URL
- * POST /api/audio/fetch-url
- * Body: { url: string }
+ * Legacy single-shot fetch endpoint — replaced by the job flow below
+ * (POST /api/audio/resolve + POST /api/audio/jobs). Kept as a shim
+ * so old clients get a pointer instead of a hang.
  */
-app.post("/api/audio/fetch-url", async (req: Request, res: Response) => {
-  try {
-    const { url } = req.body;
-
-    if (!url) {
-      return res.status(400).json({ error: "URL is required" });
-    }
-
-    // Detect platform
-    const isYouTube = url.includes("youtube.com") || url.includes("youtu.be");
-    const isSpotify = url.includes("spotify.com");
-
-    if (isYouTube) {
-      // Validate YouTube URL
-      if (!ytdl.validateURL(url)) {
-        return res.status(400).json({ error: "Invalid YouTube URL" });
-      }
-
-      // Get video info
-      const info = await ytdl.getInfo(url);
-      const title = info.videoDetails.title;
-      const duration = parseInt(info.videoDetails.lengthSeconds);
-
-      // Check duration limit (1 hour max)
-      if (duration > 3600) {
-        return res.status(400).json({ error: "Video too long (max 1 hour)" });
-      }
-
-      console.log(`📺 Fetching: ${title} (${duration}s)`);
-
-      // Stream audio
-      const audioStream = ytdl(url, {
-        quality: "highestaudio",
-        filter: "audioonly",
-      });
-
-      res.setHeader("Content-Type", "audio/webm");
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename="${title}.webm"`
-      );
-      res.setHeader("X-Audio-Title", encodeURIComponent(title));
-      res.setHeader("X-Audio-Duration", duration.toString());
-
-      audioStream.pipe(res);
-
-      audioStream.on("error", (error) => {
-        console.error("YouTube stream error:", error);
-        if (!res.headersSent) {
-          res.status(500).json({ error: "Failed to stream audio" });
-        }
-      });
-
-      audioStream.on("end", () => {
-        console.log(`✅ Completed: ${title}`);
-      });
-    } else if (isSpotify) {
-      return res.status(501).json({
-        error: "Spotify support coming soon",
-        message:
-          "Spotify requires authentication and has playback restrictions. Use YouTube for now.",
-      });
-    } else {
-      return res.status(400).json({
-        error: "Unsupported URL. Please use YouTube or Spotify links.",
-      });
-    }
-  } catch (error) {
-    console.error("URL fetch error:", error);
-    res.status(500).json({
-      error: "Failed to fetch audio from URL",
-      details: (error as Error).message,
-    });
-  }
+app.post("/api/audio/fetch-url", (_req: Request, res: Response) => {
+  return res.status(410).json({
+    error: "This endpoint is retired. Use POST /api/audio/resolve then POST /api/audio/jobs.",
+  });
 });
+
+registerLinkImportRoutes(app);
 
 // ============= ERROR HANDLING =============
 
@@ -180,7 +112,7 @@ const PORT = process.env.PORT || 4001;
 app.listen(PORT, () => {
   console.log(`🎵 SlowedLab API Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
-  console.log(`✅ YouTube URL support enabled`);
+  console.log(`✅ Link import enabled (YouTube + SoundCloud via yt-dlp)`);
   console.log(`📡 Ready to accept requests at http://localhost:${PORT}`);
 });
 

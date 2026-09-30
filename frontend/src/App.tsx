@@ -5,15 +5,15 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  FiPlay, FiPause, FiSkipBack, FiSkipForward, FiBookmark, FiMusic,
+  FiPlay, FiPause, FiSkipBack, FiSkipForward, FiMusic,
   FiActivity, FiVolume2, FiCpu,
   FiHeadphones, FiStar, FiZap as FiBolt, FiDroplet as FiDiamond, FiSliders,
-  FiSettings, FiX
+  FiSettings, FiX, FiList, FiTrash2, FiUploadCloud, FiFolder, FiLink
 } from 'react-icons/fi';
 import Topbar from './components/Topbar.tsx';
 import Sidebar from './components/Sidebar.tsx';
-import './App.css';
 import Waveform from './components/Waveform.tsx';
+import LinkImport from './components/LinkImport.tsx';
 import BugReportPanel from './components/BugReportPanel.tsx';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.ts';
 
@@ -112,7 +112,7 @@ const PRESETS: Preset[] = [
     name: 'Bass Boosted',
     description: 'Deep bass enhancement',
     icon: 'volumeHigh',
-    settings: { playbackRate: 1.0, reverbAmount: 15, bassBoost: 60, trebleBoost: -10, compression: 50, distortion: 5 }
+    settings: { playbackRate: 1.0, reverbAmount: 15, bassBoost: 40, trebleBoost: -10, compression: 50, distortion: 5 }
   },
   {
     name: 'Lo-Fi Chill',
@@ -174,6 +174,7 @@ export default function App() {
   const [selectedPreset, setSelectedPreset] = useState('Custom');
 
   const [isDragging, setIsDragging] = useState(false);
+  const [importSource, setImportSource] = useState<'device' | 'cloud'>('device');
 
   const [playHistory, setPlayHistory] = useState<PlayHistoryItem[]>([]);
   const [userPresets, setUserPresets] = useState<UserPreset[]>([]);
@@ -183,6 +184,7 @@ export default function App() {
   const [presetNameInput, setPresetNameInput] = useState('My Preset');
   const [isRestoring, setIsRestoring] = useState(true);
   const [loadingProgress, setLoadingProgress] = useState<{ fileName: string, progress: number } | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
   const [showBugModal, setShowBugModal] = useState(false);
   const [bugTitle, setBugTitle] = useState('');
   const [bugDescription, setBugDescription] = useState('');
@@ -226,7 +228,9 @@ export default function App() {
     }
 
     // Check file format
-    if (!file.type.startsWith('audio/')) {
+    const extension = file.name.split('.').pop()?.toLowerCase();
+    const audioExtensions = ['mp3', 'wav', 'flac', 'ogg', 'aac', 'm4a', 'webm', 'opus'];
+    if (!file.type.startsWith('audio/') && !audioExtensions.includes(extension || '')) {
       return `"${file.name}" is not an audio file.`;
     }
 
@@ -275,6 +279,16 @@ export default function App() {
       tx.objectStore(DB_CONFIG.store).clear();
     } catch (err) {
       console.warn('Failed to clear cache', err);
+    }
+  }, [openDB]);
+
+  const deleteTrackFromDB = useCallback(async (trackId: string) => {
+    try {
+      const db = await openDB();
+      const tx = db.transaction(DB_CONFIG.store, 'readwrite');
+      tx.objectStore(DB_CONFIG.store).delete(trackId);
+    } catch (err) {
+      console.warn('Failed to remove cached track', err);
     }
   }, [openDB]);
 
@@ -419,9 +433,9 @@ export default function App() {
 
   // Old canvas waveform removed; new component handles rendering and interactions
 
-  // Handle file upload (multiple files)
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
+  // Shared import core: validate -> decode -> persist -> playlist.
+  // Upload, drop, and link-import all route through here.
+  const addAudioFiles = async (files: File[], emptyMessage: string) => {
     if (files.length === 0) return;
 
     // Validate all files first
@@ -432,7 +446,7 @@ export default function App() {
       const error = validateAudioFile(file);
       if (error) {
         validationErrors.push(error);
-      } else if (file.type.startsWith('audio/')) {
+      } else {
         validFiles.push(file);
       }
     });
@@ -444,7 +458,7 @@ export default function App() {
 
     if (validFiles.length === 0) {
       if (validationErrors.length === 0) {
-        setAudio(prev => ({ ...prev, error: 'Please upload audio files (MP3, WAV, FLAC, OGG, etc.)' }));
+        setAudio(prev => ({ ...prev, error: emptyMessage }));
         setTimeout(() => setAudio(prev => ({ ...prev, error: null })), 3000);
       }
       return;
@@ -511,9 +525,19 @@ export default function App() {
         setLoadingProgress(null);
       }
     }
+  };
 
+  // Handle file upload (multiple files)
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
     // Reset file input
     e.target.value = '';
+    await addAudioFiles(files, 'Please upload audio files (MP3, WAV, FLAC, OGG, etc.)');
+  };
+
+  // Handle audio fetched from a link (already a decoded-ready File)
+  const handleRemoteFile = async (file: File) => {
+    await addAudioFiles([file], 'Could not use that audio.');
   };
 
   // Handle drag and drop
@@ -531,95 +555,7 @@ export default function App() {
     setIsDragging(false);
 
     const files = Array.from(e.dataTransfer.files);
-
-    // Validate all files
-    const validationErrors: string[] = [];
-    const validFiles: File[] = [];
-
-    files.forEach(file => {
-      const error = validateAudioFile(file);
-      if (error) {
-        validationErrors.push(error);
-      } else if (file.type.startsWith('audio/')) {
-        validFiles.push(file);
-      }
-    });
-
-    if (validationErrors.length > 0) {
-      setAudio(prev => ({ ...prev, error: validationErrors.join(' ') }));
-      setTimeout(() => setAudio(prev => ({ ...prev, error: null })), 5000);
-    }
-
-    if (validFiles.length === 0) {
-      if (validationErrors.length === 0) {
-        setAudio(prev => ({ ...prev, error: 'Please drop audio files (MP3, WAV, FLAC, OGG, etc.)' }));
-        setTimeout(() => setAudio(prev => ({ ...prev, error: null })), 3000);
-      }
-      return;
-    }
-
-    const audioFiles = validFiles;
-
-    const shouldAutoplay = audio.playlist.length === 0;
-
-    const newTracks: AudioFile[] = audioFiles.map(file => ({
-      id: Date.now().toString() + Math.random(),
-      file,
-      buffer: null,
-      duration: 0,
-      isLoading: true,
-    }));
-
-    setAudio(prev => ({
-      ...prev,
-      playlist: [...prev.playlist, ...newTracks],
-      currentTrackIndex: prev.playlist.length === 0 ? 0 : prev.currentTrackIndex,
-    }));
-
-    // Load each file
-    for (let i = 0; i < newTracks.length; i++) {
-      try {
-        setLoadingProgress({ fileName: audioFiles[i].name, progress: 0 });
-
-        const arrayBuffer = await audioFiles[i].arrayBuffer();
-        setLoadingProgress({ fileName: audioFiles[i].name, progress: 50 });
-
-        const buffer = await audioContextRef.current!.decodeAudioData(arrayBuffer);
-        setLoadingProgress({ fileName: audioFiles[i].name, progress: 100 });
-
-        // Waveform handled by component
-
-        // Persist dropped track to cache for session restore
-        await persistTrackToDB(newTracks[i].id, audioFiles[i]);
-
-        setAudio(prev => ({
-          ...prev,
-          playlist: prev.playlist.map(track =>
-            track.id === newTracks[i].id
-              ? { ...track, buffer, duration: buffer.duration, isLoading: false }
-              : track
-          ),
-        }));
-
-        if (shouldAutoplay && i === 0) {
-          autoPlayFirst();
-        }
-      } catch (err) {
-        console.error('Failed to load audio:', err);
-        const errorMsg = err instanceof Error
-          ? `Failed to load "${audioFiles[i].name}": ${err.message.includes('Unable to decode') ? 'Unsupported or corrupted audio format' : err.message}`
-          : `Failed to load "${audioFiles[i].name}": Unknown error`;
-
-        setAudio(prev => ({
-          ...prev,
-          playlist: prev.playlist.filter(track => track.id !== newTracks[i].id),
-          error: errorMsg,
-        }));
-        setTimeout(() => setAudio(prev => ({ ...prev, error: null })), 6000);
-      } finally {
-        setLoadingProgress(null);
-      }
-    }
+    await addAudioFiles(files, 'Please drop audio files (MP3, WAV, FLAC, OGG, etc.)');
   };
 
   // Update current time animation using freshest state refs to avoid stale closures
@@ -644,6 +580,7 @@ export default function App() {
       // Stop current source to prevent concurrent playback
       if (sourceNodeRef.current) {
         try {
+          sourceNodeRef.current.onended = null;
           sourceNodeRef.current.stop();
           sourceNodeRef.current.disconnect();
         } catch (e) {
@@ -729,8 +666,9 @@ export default function App() {
     convolver.buffer = convolverNodeRef.current!.buffer;
     const reverbGain = audioContextRef.current.createGain();
     const dryGain = audioContextRef.current.createGain();
-    reverbGain.gain.value = effects.reverbAmount / 100;
-    dryGain.gain.value = 1 - (effects.reverbAmount / 200); // Keep some dry signal
+    const reverbMix = effects.reverbAmount / 100 * Math.PI / 2;
+    reverbGain.gain.value = Math.sin(reverbMix);
+    dryGain.gain.value = Math.cos(reverbMix);
 
     // Configure EQ
     bassEQ.type = 'lowshelf';
@@ -807,11 +745,26 @@ export default function App() {
     source.start(0, pauseTimeRef.current);
 
     source.onended = () => {
+      if (!playingRef.current) return;
       playingRef.current = false;
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
-      setAudio(prev => ({ ...prev, isPlaying: false }));
+      const state = audioStateRef.current;
+      const nextIndex = state ? state.currentTrackIndex + 1 : -1;
+      const nextTrack = state?.playlist[nextIndex];
+      if (nextTrack?.buffer) {
+        pauseTimeRef.current = 0;
+        pauseTimelineRef.current = 0;
+        setBufferPosition(0);
+        setAudio(prev => ({ ...prev, currentTrackIndex: nextIndex, currentTime: 0, isPlaying: false }));
+        setTimeout(() => playAudioRef.current?.(), 80);
+      } else {
+        setAudio(prev => ({ ...prev, isPlaying: false, currentTime: 0 }));
+        pauseTimeRef.current = 0;
+        pauseTimelineRef.current = 0;
+        setBufferPosition(0);
+      }
     };
 
     setAudio(prev => ({ ...prev, isPlaying: true }));
@@ -889,8 +842,9 @@ export default function App() {
 
     // Update reverb dry/wet mix
     if (dryGainRef.current && wetGainRef.current) {
-      const dryAmount = 1 - (effects.reverbAmount / 200);
-      const wetAmount = effects.reverbAmount / 100;
+      const mix = effects.reverbAmount / 100 * Math.PI / 2;
+      const dryAmount = Math.cos(mix);
+      const wetAmount = Math.sin(mix);
       dryGainRef.current.gain.value = dryAmount;
       wetGainRef.current.gain.value = wetAmount;
     }
@@ -995,13 +949,13 @@ export default function App() {
   };
 
   // Toggle play/pause
-  const togglePlayback = () => {
+  const togglePlayback = useCallback(() => {
     if (audio.isPlaying) {
       pauseAudio();
     } else {
       playAudio();
     }
-  };
+  }, [audio.isPlaying, pauseAudio, playAudio]);
 
   // Update volume
   useEffect(() => {
@@ -1069,6 +1023,7 @@ export default function App() {
     try {
       await navigator.clipboard.writeText(JSON.stringify({ name: preset.name, settings: preset.settings }, null, 2));
       setAudio(prev => ({ ...prev, error: 'Preset JSON copied to clipboard' }));
+      setTimeout(() => setAudio(prev => ({ ...prev, error: null })), 3000);
     } catch (err) {
       setAudio(prev => ({ ...prev, error: 'Clipboard unavailable' }));
     }
@@ -1093,7 +1048,7 @@ export default function App() {
   };
 
   // Track management
-  const playTrack = (index: number) => {
+  const playTrack = useCallback((index: number) => {
     if (index < 0 || index >= audio.playlist.length) return;
 
     if (audio.isPlaying) {
@@ -1112,31 +1067,35 @@ export default function App() {
     if (track.buffer) {
       setTimeout(() => playAudioRef.current?.(), 100);
     }
-  };
+  }, [audio.isPlaying, audio.playlist, stopAudio]);
 
-  const playNextTrack = () => {
+  const playNextTrack = useCallback(() => {
     if (audio.currentTrackIndex < audio.playlist.length - 1) {
       playTrack(audio.currentTrackIndex + 1);
     }
-  };
+  }, [audio.currentTrackIndex, audio.playlist.length, playTrack]);
 
-  const playPreviousTrack = () => {
+  const playPreviousTrack = useCallback(() => {
     if (audio.currentTrackIndex > 0) {
       playTrack(audio.currentTrackIndex - 1);
     }
-  };
+  }, [audio.currentTrackIndex, playTrack]);
 
   const removeTrack = (id: string) => {
+    const removingCurrent = currentTrack?.id === id;
+    if (removingCurrent) {
+      stopAudio();
+      pauseTimeRef.current = 0;
+      pauseTimelineRef.current = 0;
+      setBufferPosition(0);
+    }
+    deleteTrackFromDB(id);
     setAudio(prev => {
       const removeIndex = prev.playlist.findIndex(t => t.id === id);
       if (removeIndex === -1) return prev;
 
       const newPlaylist = prev.playlist.filter(t => t.id !== id);
       const wasCurrent = prev.currentTrackIndex === removeIndex;
-
-      if (wasCurrent && prev.isPlaying) {
-        stopAudio();
-      }
 
       let nextIndex = prev.currentTrackIndex;
       if (newPlaylist.length === 0) {
@@ -1156,7 +1115,8 @@ export default function App() {
     });
   };
 
-  const clearPlaylist = () => {
+  const clearPlaylist = (confirmClear = true) => {
+    if (confirmClear && audio.playlist.length && !window.confirm('Clear every track from this browser session?')) return;
     if (audio.isPlaying) {
       stopAudio();
     }
@@ -1171,7 +1131,8 @@ export default function App() {
   };
 
   const resetSession = () => {
-    clearPlaylist();
+    if ((audio.playlist.length || userPresets.length) && !window.confirm('Reset this session? This removes all tracks and saved presets from this browser.')) return;
+    clearPlaylist(false);
     setEffects({ ...DEFAULT_EFFECTS });
     setSelectedPreset('Custom');
     setUserPresets([]);
@@ -1315,143 +1276,232 @@ export default function App() {
 
   const exportSelection = async () => {
     if (!currentTrack?.buffer) return;
+    setIsExporting(true);
+    try {
+      const input = currentTrack.buffer;
+      const sampleRate = input.sampleRate;
+      const renderedDuration = input.duration / effects.playbackRate + 2;
+      const offline = new OfflineAudioContext(input.numberOfChannels, Math.ceil(renderedDuration * sampleRate), sampleRate);
+      const source = offline.createBufferSource();
+      const distortion = offline.createWaveShaper();
+      const bass = offline.createBiquadFilter();
+      const treble = offline.createBiquadFilter();
+      const compressor = offline.createDynamicsCompressor();
+      const gain = offline.createGain();
+      const dry = offline.createGain();
+      const convolver = offline.createConvolver();
+      const wet = offline.createGain();
 
-    const channels = currentTrack.buffer.numberOfChannels;
-    const sampleRate = currentTrack.buffer.sampleRate;
-    const length = currentTrack.buffer.length;
-    const out = audioContextRef.current!.createBuffer(channels, length, sampleRate);
+      source.buffer = input;
+      source.playbackRate.value = effects.playbackRate;
+      gain.gain.value = volume;
+      bass.type = 'lowshelf';
+      bass.frequency.value = 200;
+      bass.gain.value = effects.bassBoost / 2;
+      treble.type = 'highshelf';
+      treble.frequency.value = 3000;
+      treble.gain.value = effects.trebleBoost / 2;
+      const compression = effects.compression / 100;
+      compressor.threshold.value = -compression * 40;
+      compressor.knee.value = compression * 30;
+      compressor.ratio.value = 1 + compression * 19;
+      compressor.attack.value = 0.005 + compression * 0.045;
+      compressor.release.value = 0.05 + compression * 0.35;
 
-    for (let ch = 0; ch < channels; ch++) {
-      const slice = currentTrack.buffer.getChannelData(ch);
-      out.copyToChannel(slice, ch, 0);
+      const curve = new Float32Array(44100);
+      const amount = effects.distortion / 100;
+      const k = amount * 50;
+      for (let i = 0; i < curve.length; i++) {
+        const x = (i * 2) / curve.length - 1;
+        curve[i] = amount <= 0.0001 ? x : ((3 + k) * x * 20 * Math.PI / 180) / (Math.PI + k * Math.abs(x));
+      }
+      distortion.curve = curve;
+      distortion.oversample = '4x';
+      convolver.buffer = convolverNodeRef.current?.buffer || null;
+      const mix = effects.reverbAmount / 100 * Math.PI / 2;
+      dry.gain.value = Math.cos(mix);
+      wet.gain.value = Math.sin(mix);
+
+      source.connect(distortion);
+      distortion.connect(bass);
+      bass.connect(treble);
+      treble.connect(compressor);
+      compressor.connect(gain);
+      gain.connect(dry).connect(offline.destination);
+      gain.connect(convolver).connect(wet).connect(offline.destination);
+      source.start();
+
+      const rendered = await offline.startRendering();
+      const blob = audioBufferToWav(rendered);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${currentTrack.file.name.replace(/\.[^/.]+$/, '')}-slowedlab.wav`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      console.error('Export failed', err);
+      setAudio(prev => ({ ...prev, error: 'Could not render this mix. Try a shorter file or close other tabs.' }));
+    } finally {
+      setIsExporting(false);
     }
-
-    const blob = audioBufferToWav(out);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${currentTrack.file.name}-full.wav`;
-    a.click();
-    URL.revokeObjectURL(url);
   };
 
 
   const activePresetLabel = selectedPreset === 'Custom' ? 'Custom Blend' : selectedPreset;
 
-  const bookmarkWebsite = () => {
-    if (window.sidebar && window.sidebar.addPanel) {
-      window.sidebar.addPanel('SlowedLab', window.location.href, '');
-    } else if ((window as any).external && (window as any).external.AddFavorite) {
-      (window as any).external.AddFavorite(window.location.href, 'SlowedLab');
-    } else {
-      alert('Press Ctrl+D (Windows/Linux) or Cmd+D (Mac) to bookmark this page');
-    }
-  };
-
   return (
     <div className="app">
-      {/* Top Bar - Floating */}
-      <div className="top-bar-container">
-        <Topbar
-          currentTrackName={currentTrack?.file.name || 'No track loaded'}
-          audio={audio}
-          selectedPreset={selectedPreset}
-          applyPreset={applyPreset}
-          PRESETS={PRESETS}
-          userPresets={userPresets}
-          presetNameInput={presetNameInput}
-          setPresetNameInput={setPresetNameInput}
-          saveUserPreset={saveUserPreset}
-          handleFileUpload={handleFileUpload}
-          exportSelection={exportSelection}
-          setShowBugModal={setShowBugModal}
-          setBugMessage={setBugMessage}
-          togglePlayback={togglePlayback}
-          currentTrack={currentTrack}
-        />
-      </div>
+      <a className="skip-link" href="#main-content">Skip to studio</a>
+      <Topbar
+        currentTrackName={currentTrack?.file.name || 'No track loaded'}
+        audio={audio}
+        selectedPreset={selectedPreset}
+        applyPreset={applyPreset}
+        PRESETS={PRESETS}
+        userPresets={userPresets}
+        presetNameInput={presetNameInput}
+        setPresetNameInput={setPresetNameInput}
+        saveUserPreset={saveUserPreset}
+        handleFileUpload={handleFileUpload}
+        exportSelection={exportSelection}
+        isExporting={isExporting}
+        setShowBugModal={setShowBugModal}
+        setBugMessage={setBugMessage}
+        currentTrack={currentTrack}
+      />
 
-      {/* Main Stage - Waveform & Visualizer */}
-      <div
-        className={`stage-center ${isDragging ? 'dragging' : ''}`}
+      <main
+        id="main-content"
+        className={`studio ${isDragging ? 'dragging' : ''}`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
         {currentTrack ? (
-          <div className="glass-panel" style={{ width: '100%', maxWidth: '1200px', padding: '2rem', borderRadius: '20px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h2 className="text-gradient" style={{ margin: 0, fontSize: '2rem' }}>{currentTrack.file.name}</h2>
-              <span className="pill pill-live">{activePresetLabel}</span>
+          <section className="track-workspace" aria-label="Audio workspace">
+            <header className="track-heading">
+              <div className="track-title-group">
+                <p className="overline">Now editing</p>
+                <h1 title={currentTrack.file.name}>{currentTrack.file.name.replace(/\.[^/.]+$/, '')}</h1>
+              </div>
+              <div className="track-meta">
+                <span>{activePresetLabel}</span>
+                <span>{effects.playbackRate.toFixed(2)}× speed</span>
+                <span>{formatTime((currentTrack.duration || 0) / effects.playbackRate)}</span>
+              </div>
+            </header>
+
+            <div className="waveform-shell">
+              <div className="waveform-toolbar"><span>Waveform</span><span>Drag or use arrow keys to seek</span></div>
+              <Waveform
+                buffer={currentTrack.buffer}
+                currentTime={audio.currentTime}
+                playbackRate={effects.playbackRate}
+                bufferPosition={bufferPosition}
+                onSeek={seekTo}
+                height={220}
+              />
+              <div className="time-ruler" aria-hidden="true">
+                <span>{formatTime(audio.currentTime)}</span>
+                <span>{formatTime((currentTrack.duration || 0) / effects.playbackRate)}</span>
+              </div>
             </div>
 
-            <Waveform
-              buffer={currentTrack.buffer}
-              currentTime={audio.currentTime}
-              playbackRate={effects.playbackRate}
-              bufferPosition={bufferPosition}
-              onSeek={seekTo}
-            />
-
-            {/* Time Display */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--color-text-secondary)', fontSize: '0.9rem', marginTop: '0.5rem' }}>
-              <span>{formatTime(audio.currentTime)}</span>
-              <span>{formatTime((currentTrack.duration || 0) / effects.playbackRate)}</span>
-            </div>
-          </div>
+            <footer className="workspace-footer">
+              <div><span className="privacy-mark">Local</span><p><strong>Your audio stays here.</strong><small>Processing happens in this browser.</small></p></div>
+              <label className="text-upload-button"><FiUploadCloud /> Add another track<input type="file" accept="audio/*" onChange={handleFileUpload} multiple /></label>
+            </footer>
+          </section>
         ) : (
-          <label className="glass-panel empty-state clickable-dropzone" style={{ padding: '4rem', textAlign: 'center', borderRadius: '24px', display: 'block', cursor: 'pointer' }}>
-            <input type="file" accept="audio/*" onChange={handleFileUpload} multiple style={{ display: 'none' }} />
-            <h1 className="text-gradient" style={{ fontSize: '3rem', marginBottom: '1rem' }}>SlowedLab</h1>
-            <p style={{ color: 'var(--color-text-secondary)', marginBottom: '2rem' }}>Drop audio files or click anywhere to begin your sonic journey.</p>
-            <div className="upload-hint">
-              <span className="primary-action" style={{ fontSize: '1.2rem', padding: '1rem 2rem', display: 'inline-block' }}>
-                Browse Files
-              </span>
+          <section className="empty-workspace">
+            <div className="empty-visual" aria-hidden="true">
+              <img src="/logo-mark.svg" alt="" />
             </div>
-          </label>
+            <div className="empty-copy">
+              <p className="overline">Private browser studio</p>
+              <h1>Hear your track<br /><em>another way.</em></h1>
+              <p>Choose where your audio comes from. Shape it here, then export a finished WAV.</p>
+
+              <div className="source-picker">
+                <div className="source-tabs" role="tablist" aria-label="Audio source">
+                  <button
+                    id="device-source-tab"
+                    className={importSource === 'device' ? 'active' : ''}
+                    role="tab"
+                    aria-selected={importSource === 'device'}
+                    aria-controls="device-source-panel"
+                    onClick={() => setImportSource('device')}
+                  >
+                    <FiFolder aria-hidden="true" />
+                    <span><strong>Your files</strong><small>Private and local</small></span>
+                  </button>
+                  <button
+                    id="cloud-source-tab"
+                    className={importSource === 'cloud' ? 'active' : ''}
+                    role="tab"
+                    aria-selected={importSource === 'cloud'}
+                    aria-controls="cloud-source-panel"
+                    onClick={() => setImportSource('cloud')}
+                  >
+                    <FiLink aria-hidden="true" />
+                    <span><strong>Cloud link</strong><small>YouTube or SoundCloud</small></span>
+                  </button>
+                </div>
+
+                {importSource === 'device' ? (
+                  <div className="source-panel device-source" id="device-source-panel" role="tabpanel" aria-labelledby="device-source-tab">
+                    <label className="device-dropzone">
+                      <span className="device-upload-icon"><FiUploadCloud aria-hidden="true" /></span>
+                      <span><strong>{isRestoring ? 'Restoring your session…' : 'Choose audio files'}</strong><small>or drop them anywhere on this screen</small></span>
+                      <input type="file" accept="audio/*" onChange={handleFileUpload} multiple disabled={isRestoring} />
+                    </label>
+                    <p><span>MP3, WAV, FLAC, OGG, AAC</span><span>Up to 200 MB each</span></p>
+                  </div>
+                ) : (
+                  <div className="source-panel cloud-source" id="cloud-source-panel" role="tabpanel" aria-labelledby="cloud-source-tab">
+                    <LinkImport onFile={handleRemoteFile} />
+                    <p className="cloud-note">Public links only. Audio is fetched through our server.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
         )}
-      </div>
+        {isDragging && <div className="drop-overlay"><FiUploadCloud /><strong>Drop to add audio</strong><span>We’ll add it to your queue</span></div>}
+      </main>
 
-      {/* Dock - Controls */}
-      <div className="dock-container glass-panel">
-        {/* Left: Settings */}
-        <button className="dock-icon-btn" onClick={() => setIsSidebarOpen(true)} title="Settings">
-          <FiSettings />
-        </button>
-
-        {/* Center: Transport */}
+      <footer className="transport-dock" aria-label="Playback controls">
+        <div className="dock-track">
+          <span className="dock-art"><img src="/logo-mark.svg" alt="" /></span>
+          <p><strong>{currentTrack ? currentTrack.file.name.replace(/\.[^/.]+$/, '') : 'No track selected'}</strong><small>{currentTrack ? activePresetLabel : 'Add audio to begin'}</small></p>
+        </div>
         <div className="transport-controls">
-          <button className="dock-icon-btn" onClick={playPreviousTrack} disabled={audio.currentTrackIndex === 0} title="Previous">
+          <button className="transport-button" onClick={playPreviousTrack} disabled={!currentTrack || audio.currentTrackIndex === 0} aria-label="Previous track">
             <FiSkipBack />
           </button>
-          <button className="play-btn" onClick={togglePlayback} disabled={!currentTrack?.buffer || currentTrack?.isLoading} title={audio.isPlaying ? 'Pause' : 'Play'}>
-            {audio.isPlaying ? <FiPause /> : <FiPlay />}
+          <button className="play-button" onClick={togglePlayback} disabled={!currentTrack?.buffer || currentTrack.isLoading} aria-label={audio.isPlaying ? 'Pause' : 'Play'}>
+            {audio.isPlaying ? <FiPause /> : <FiPlay className="play-glyph" />}
           </button>
-          <button className="dock-icon-btn" onClick={playNextTrack} disabled={audio.currentTrackIndex === audio.playlist.length - 1} title="Next">
+          <button className="transport-button" onClick={playNextTrack} disabled={!currentTrack || audio.currentTrackIndex >= audio.playlist.length - 1} aria-label="Next track">
             <FiSkipForward />
           </button>
+          <span className="dock-time">{formatTime(audio.currentTime)}</span>
         </div>
-
-        {/* Right: Volume & Playlist */}
-        <div className="dock-right">
-          <div className="volume-control">
-            <span className="volume-icon"><FiVolume2 /></span>
-            <input
-              type="range"
-              min="0" max="1.2" step="0.01"
-              value={volume}
-              onChange={(e) => setVolume(parseFloat(e.target.value))}
-              className="volume-slider"
-            />
-          </div>
-          <button className={`dock-icon-btn ${isPlaylistOpen ? 'active' : ''}`} onClick={() => setIsPlaylistOpen(true)} title="Playlist">
-            <FiMusic />
+        <div className="dock-tools">
+          <label className="volume-control">
+            <FiVolume2 aria-hidden="true" /><span className="sr-only">Volume</span>
+            <input type="range" min="0" max="1" step="0.01" value={volume} onChange={(e) => setVolume(Number(e.target.value))} aria-label="Volume" />
+          </label>
+          <button className={isSidebarOpen ? 'active' : ''} onClick={() => setIsSidebarOpen(true)} aria-label="Open sound controls" aria-expanded={isSidebarOpen}>
+            <FiSettings /><span>Sound</span>
+          </button>
+          <button className={isPlaylistOpen ? 'active' : ''} onClick={() => setIsPlaylistOpen(true)} aria-label="Open queue" aria-expanded={isPlaylistOpen}>
+            <FiList /><span>Queue</span>{audio.playlist.length > 0 && <b>{audio.playlist.length}</b>}
           </button>
         </div>
-      </div>
+      </footer>
 
-      {/* Drawers */}
       <Sidebar
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
@@ -1472,96 +1522,57 @@ export default function App() {
         resetPresets={resetPresets}
       />
 
-      {/* Playlist Drawer */}
-      <div className={`sidebar-drawer drawer-right glass-panel ${isPlaylistOpen ? 'open' : ''}`}>
-        <button className="drawer-close-btn" onClick={() => setIsPlaylistOpen(false)}>×</button>
-        <h3 style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>Playlist ({audio.playlist.length})</h3>
+      {isPlaylistOpen && (
+        <aside className="studio-drawer queue-drawer" role="dialog" aria-modal="true" aria-labelledby="queue-title">
+          <header className="drawer-heading">
+            <div><p className="overline">Session</p><h2 id="queue-title">Track queue <span>{audio.playlist.length}</span></h2></div>
+            <button className="icon-button" onClick={() => setIsPlaylistOpen(false)} aria-label="Close queue"><FiX /></button>
+          </header>
+          <div className="queue-actions">
+            <label className="secondary-button"><FiUploadCloud /> Add tracks<input type="file" accept="audio/*" onChange={handleFileUpload} multiple /></label>
+            <button className="text-button danger" onClick={() => clearPlaylist()} disabled={!audio.playlist.length}><FiTrash2 /> Clear</button>
+          </div>
+          <div className="queue-link">
+            <LinkImport compact onFile={handleRemoteFile} />
+          </div>
+          <div className="queue-list">
+            {audio.playlist.map((track, index) => (
+              <article className={`queue-item ${index === audio.currentTrackIndex ? 'active' : ''}`} key={track.id}>
+                <button className="queue-select" onClick={() => playTrack(index)}>
+                  <span className="queue-index">{index === audio.currentTrackIndex && audio.isPlaying ? <FiActivity /> : String(index + 1).padStart(2, '0')}</span>
+                  <span><strong>{track.file.name.replace(/\.[^/.]+$/, '')}</strong><small>{track.isLoading ? 'Preparing audio…' : formatTime(track.duration)}</small></span>
+                </button>
+                <button className="queue-remove" onClick={() => removeTrack(track.id)} aria-label={`Remove ${track.file.name}`}><FiX /></button>
+              </article>
+            ))}
+            {!audio.playlist.length && <div className="queue-empty"><FiMusic /><strong>Queue is empty</strong><span>Add tracks to keep listening.</span></div>}
+          </div>
+        </aside>
+      )}
 
-        <div className="panel-actions" style={{ marginBottom: '1rem', display: 'flex', gap: '0.5rem' }}>
-          <label htmlFor="add-more-playlist" className="glass-button" style={{ padding: '0.5rem 1rem', borderRadius: '8px', cursor: 'pointer', fontSize: '0.9rem' }}>
-            + Add Tracks
-            <input
-              type="file"
-              accept="audio/*"
-              onChange={handleFileUpload}
-              id="add-more-playlist"
-              style={{ display: 'none' }}
-              multiple
-            />
-          </label>
-          <button className="glass-button" onClick={clearPlaylist} style={{ padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.9rem' }}>Clear All</button>
-        </div>
-
-        <div className="playlist-items board-scroll" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          {audio.playlist.map((track, index) => (
-            <div
-              key={track.id}
-              className={`playlist-item ${index === audio.currentTrackIndex ? 'active' : ''}`}
-              onClick={() => playTrack(index)}
-              style={{
-                padding: '0.75rem',
-                borderRadius: '12px',
-                background: index === audio.currentTrackIndex ? 'rgba(var(--color-primary-rgb), 0.15)' : 'rgba(255,255,255,0.03)',
-                border: index === audio.currentTrackIndex ? '1px solid var(--color-primary)' : '1px solid transparent',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.75rem'
-              }}
-            >
-              <div className="playlist-item-icon">
-                {index === audio.currentTrackIndex && audio.isPlaying ? <FiPlay size={14} /> : <FiMusic size={14} />}
-              </div>
-              <div className="playlist-item-info" style={{ flex: 1, overflow: 'hidden' }}>
-                <div className="playlist-item-name" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 500 }}>{track.file.name}</div>
-                <div className="playlist-item-meta" style={{ fontSize: '0.75rem', color: 'var(--color-text-tertiary)' }}>
-                  {track.isLoading ? 'Loading…' : `${formatTime(track.duration)}`}
-                </div>
-              </div>
-              <button
-                className="playlist-item-remove"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  removeTrack(track.id);
-                }}
-                style={{ background: 'transparent', border: 'none', color: 'var(--color-text-tertiary)', cursor: 'pointer' }}
-              >
-                <FiX />
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Overlays */}
-      <div className={`drawer-overlay ${isSidebarOpen || isPlaylistOpen ? 'open' : ''}`} onClick={() => { setIsSidebarOpen(false); setIsPlaylistOpen(false); }} />
+      {(isSidebarOpen || isPlaylistOpen) && (
+        <button className="drawer-backdrop" onClick={() => { setIsSidebarOpen(false); setIsPlaylistOpen(false); }} aria-label="Close panel" />
+      )}
 
       {currentTrack?.isLoading && (
-        <div className="loading-overlay">
-          <div className="loading-spinner"></div>
-          <p>Processing audio...</p>
+        <div className="processing-state" role="status">
+          <img className="loading-logo" src="/logo-mark.svg" alt="" />
+          <p><strong>Preparing your track</strong><small>Reading audio data in this browser…</small></p>
         </div>
       )}
 
       {loadingProgress && (
-        <div className="loading-toast">
-          <div className="loading-spinner-mini"></div>
-          <div className="loading-content">
-            <span>Loading {loadingProgress.fileName}...</span>
-            <div className="progress-bar">
-              <div className="progress-fill" style={{ width: `${loadingProgress.progress}%` }}></div>
-            </div>
-          </div>
+        <div className="progress-toast" role="status">
+          <div><strong>Adding {loadingProgress.fileName}</strong><span>{loadingProgress.progress}%</span></div>
+          <progress max="100" value={loadingProgress.progress}>{loadingProgress.progress}%</progress>
         </div>
       )}
 
       {audio.error && (
-        <div className="error-toast">
-          <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
-          </svg>
-          {audio.error}
-          <button onClick={() => setAudio(prev => ({ ...prev, error: null }))}>×</button>
+        <div className="status-toast" role="alert">
+          <FiActivity aria-hidden="true" />
+          <span>{audio.error}</span>
+          <button onClick={() => setAudio(prev => ({ ...prev, error: null }))} aria-label="Dismiss message"><FiX /></button>
         </div>
       )}
 
@@ -1579,15 +1590,6 @@ export default function App() {
         onSubmit={submitBugReport}
       />
 
-      {/* Floating Bookmark Button */}
-      <button
-        className="floating-bookmark-button"
-        onClick={bookmarkWebsite}
-        aria-label="Bookmark for later"
-      >
-        <FiBookmark size={20} />
-        <span className="bookmark-text">Bookmark for later</span>
-      </button>
     </div>
   );
 }

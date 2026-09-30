@@ -14,13 +14,13 @@ Your website is now fully optimized for search engines and social media visibili
 ✅ Title: "SlowedLab - Professional Audio Editor with Real-Time Effects | Free
 Online Tool" ✅ Description: 160-character optimized description ✅ Keywords:
 20+ targeted keywords (audio editor, effects, reverb, etc.) ✅ Canonical URL:
-https://slowedlab.com ✅ Author, Language, Robots directives
+https://slowedlab.app ✅ Author, Language, Robots directives
 ```
 
 ### 2. **Open Graph Tags** (Facebook, LinkedIn, Pinterest sharing)
 
 ```html
-✅ og:title, og:description, og:image ✅ og:url: https://slowedlab.com ✅
+✅ og:title, og:description, og:image ✅ og:url: https://slowedlab.app ✅
 Perfect social media preview
 ```
 

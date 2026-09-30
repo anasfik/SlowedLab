@@ -28,7 +28,7 @@ Use this checklist to track your SEO setup progress.
 
 - [ ] Go to: https://search.google.com/search-console
 - [ ] Click "Create property"
-- [ ] Enter: https://slowedlab.com
+- [ ] Enter: https://slowedlab.app
 - [ ] Choose verification method (DNS recommended)
 - [ ] Wait for verification (5-30 minutes)
 - [ ] Submit robots.txt
@@ -39,7 +39,7 @@ Use this checklist to track your SEO setup progress.
 
 - [ ] Go to: https://www.bing.com/webmasters/home
 - [ ] Click "Add a site"
-- [ ] Enter: https://slowedlab.com
+- [ ] Enter: https://slowedlab.app
 - [ ] Verify ownership
 - [ ] Submit sitemap.xml
 - [ ] Monitor performance
@@ -58,14 +58,14 @@ Use this checklist to track your SEO setup progress.
 ### Facebook/Meta
 
 - [ ] Visit: https://developers.facebook.com/tools/debug/sharing
-- [ ] Enter: https://slowedlab.com
+- [ ] Enter: https://slowedlab.app
 - [ ] Click "Scrape Again"
 - [ ] Verify title, description, image preview
 
 ### Twitter
 
 - [ ] Visit: https://cards-dev.twitter.com/validator
-- [ ] Enter: https://slowedlab.com
+- [ ] Enter: https://slowedlab.app
 - [ ] Verify card preview displays correctly
 - [ ] Consider applying for verified account
 

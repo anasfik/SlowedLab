@@ -1,4 +1,4 @@
-import { FiRotateCcw, FiEdit2, FiShare2, FiX, FiClock, FiWind, FiVolume2, FiZap, FiLayers, FiCpu } from 'react-icons/fi';
+import { FiClock, FiCpu, FiEdit2, FiLayers, FiRotateCcw, FiShare2, FiTrash2, FiVolume2, FiWind, FiX, FiZap } from 'react-icons/fi';
 import { EffectSettings, UserPreset } from '../App';
 
 interface SidebarProps {
@@ -21,6 +21,15 @@ interface SidebarProps {
     resetPresets: () => void;
 }
 
+const controls = [
+    { key: 'playbackRate', label: 'Speed', hint: 'Changes speed and pitch', icon: FiClock, min: 0.5, max: 1.5, step: 0.01, format: (value: number) => `${value.toFixed(2)}×` },
+    { key: 'reverbAmount', label: 'Space', hint: 'Adds room and atmosphere', icon: FiWind, min: 0, max: 100, step: 1, format: (value: number) => `${value}%` },
+    { key: 'bassBoost', label: 'Bass', hint: 'Shapes lower frequencies', icon: FiVolume2, min: -40, max: 40, step: 1, format: (value: number) => `${value > 0 ? '+' : ''}${value}` },
+    { key: 'trebleBoost', label: 'Treble', hint: 'Shapes higher frequencies', icon: FiZap, min: -40, max: 40, step: 1, format: (value: number) => `${value > 0 ? '+' : ''}${value}` },
+    { key: 'compression', label: 'Control', hint: 'Evens out loud and quiet parts', icon: FiLayers, min: 0, max: 100, step: 1, format: (value: number) => `${value}%` },
+    { key: 'distortion', label: 'Texture', hint: 'Adds warmth and grit', icon: FiCpu, min: 0, max: 100, step: 1, format: (value: number) => `${value}%` },
+] as const;
+
 const Sidebar: React.FC<SidebarProps> = ({
     isOpen,
     onClose,
@@ -40,225 +49,88 @@ const Sidebar: React.FC<SidebarProps> = ({
     resetSession,
     resetPresets,
 }) => {
+    if (!isOpen) return null;
+
     return (
-        <>
-            <div className={`drawer-overlay ${isOpen ? 'open' : ''}`} onClick={onClose} />
-            <aside className={`sidebar-drawer glass-panel ${isOpen ? 'open' : ''}`}>
-                <button className="drawer-close-btn" onClick={onClose} title="Close Settings">×</button>
-
-                <div className="sidebar-brand">
-                    <div className="brand-mark">
-                        <div className="mark-inner">SL</div>
-                    </div>
-                    <div className="brand-text">
-                        <h2 className="brand-title">SlowedLab</h2>
-                        <span className="brand-subtitle">Control Center</span>
-                    </div>
+        <aside className="studio-drawer effects-drawer" role="dialog" aria-modal="true" aria-labelledby="effects-title">
+            <header className="drawer-heading">
+                <div>
+                    <p className="overline">Sound controls</p>
+                    <h2 id="effects-title">Shape your mix</h2>
                 </div>
+                <button className="icon-button" onClick={onClose} aria-label="Close sound controls"><FiX /></button>
+            </header>
 
-                <div className="sidebar-content custom-scrollbar">
-                    <section className="sidebar-block">
-                        <header className="sidebar-label">Session Metadata</header>
-                        <div className="session-info glass-panel">
-                            <div className="session-line">
-                                <span className="label-tag">Track</span>
-                                <span className="session-value truncate">{currentTrackName}</span>
-                            </div>
-                            <div className="session-line">
-                                <span className="label-tag">Status</span>
-                                <span className={`status-pill ${isPlaying ? 'live' : ''}`}>
-                                    {isPlaying ? 'Live' : 'Idle'}
-                                </span>
-                            </div>
-                            <div className="session-line">
-                                <span className="label-tag">Preset</span>
-                                <span className="session-value">{activePresetLabel}</span>
-                            </div>
-                            <button className="action-link" onClick={resetSession}>
-                                <FiRotateCcw style={{ marginRight: '4px' }} /> Reset All
-                            </button>
-                        </div>
-                    </section>
+            <div className="drawer-scroll">
+                <section className="session-summary" aria-label="Current session">
+                    <span className={`session-dot ${isPlaying ? 'playing' : ''}`} aria-hidden="true" />
+                    <div>
+                        <strong>{currentTrackName}</strong>
+                        <small>{activePresetLabel} · {isPlaying ? 'Playing' : 'Ready'}</small>
+                    </div>
+                </section>
 
-                    <section className="sidebar-block effects-panel">
-                        <header className="effects-header">
-                            <h3>Audio FX</h3>
-                            <button className="action-link" onClick={resetPresets}>
-                                Reset FX
-                            </button>
-                        </header>
+                <section className="effect-controls">
+                    <div className="section-heading-row">
+                        <div><h3>Fine tune</h3><p>Changes apply while audio plays.</p></div>
+                        <button className="text-button" onClick={resetPresets}><FiRotateCcw /> Reset</button>
+                    </div>
 
-                        <div className="sliders-grid">
-                            <div className="effect-item">
-                                <header>
-                                    <span className="fx-icon"><FiClock /></span>
-                                    <span className="fx-name">Playback Speed</span>
-                                    <span className="fx-value">{effects.playbackRate.toFixed(2)}x</span>
-                                </header>
+                    {controls.map(({ key, label, hint, icon: Icon, min, max, step, format }) => {
+                        const value = effects[key];
+                        return (
+                            <div className="effect-control" key={key}>
+                                <label htmlFor={`effect-${key}`}>
+                                    <span className="effect-icon"><Icon /></span>
+                                    <span className="effect-copy"><strong>{label}</strong><small>{hint}</small></span>
+                                    <output htmlFor={`effect-${key}`}>{format(value)}</output>
+                                </label>
                                 <input
+                                    id={`effect-${key}`}
                                     type="range"
-                                    min="0.5"
-                                    max="1.5"
-                                    step="0.01"
-                                    value={effects.playbackRate}
-                                    onChange={(e) => {
-                                        setEffects((prev) => ({
-                                            ...prev,
-                                            playbackRate: parseFloat(e.target.value),
-                                        }));
+                                    min={min}
+                                    max={max}
+                                    step={step}
+                                    value={value}
+                                    onChange={(event) => {
+                                        setEffects(previous => ({ ...previous, [key]: Number(event.target.value) }));
                                         setSelectedPreset('Custom');
                                     }}
                                 />
                             </div>
+                        );
+                    })}
+                </section>
 
-                            <div className="effect-item">
-                                <header>
-                                    <span className="fx-icon"><FiWind /></span>
-                                    <span className="fx-name">Reverb Depth</span>
-                                    <span className="fx-value">{effects.reverbAmount}%</span>
-                                </header>
-                                <input
-                                    type="range"
-                                    min="0"
-                                    max="100"
-                                    step="1"
-                                    value={effects.reverbAmount}
-                                    onChange={(e) => {
-                                        setEffects((prev) => ({
-                                            ...prev,
-                                            reverbAmount: parseInt(e.target.value),
-                                        }));
-                                        setSelectedPreset('Custom');
-                                    }}
-                                />
-                            </div>
+                <button className={`compare-toggle ${abActive ? 'active' : ''}`} onClick={toggleAB} aria-pressed={abActive}>
+                    <span className="compare-switch"><span /></span>
+                    <span><strong>Compare with preset</strong><small>Switch between your edits and starting sound</small></span>
+                </button>
 
-                            <div className="effect-item">
-                                <header>
-                                    <span className="fx-icon"><FiVolume2 /></span>
-                                    <span className="fx-name">Bass Impact</span>
-                                    <span className="fx-value">{effects.bassBoost} dB</span>
-                                </header>
-                                <input
-                                    type="range"
-                                    min="-40"
-                                    max="40"
-                                    step="1"
-                                    value={effects.bassBoost}
-                                    onChange={(e) => {
-                                        setEffects((prev) => ({
-                                            ...prev,
-                                            bassBoost: parseInt(e.target.value),
-                                        }));
-                                        setSelectedPreset('Custom');
-                                    }}
-                                />
-                            </div>
-
-                            <div className="effect-item">
-                                <header>
-                                    <span className="fx-icon"><FiZap /></span>
-                                    <span className="fx-name">Treble Clarity</span>
-                                    <span className="fx-value">{effects.trebleBoost} dB</span>
-                                </header>
-                                <input
-                                    type="range"
-                                    min="-40"
-                                    max="40"
-                                    step="1"
-                                    value={effects.trebleBoost}
-                                    onChange={(e) => {
-                                        setEffects((prev) => ({
-                                            ...prev,
-                                            trebleBoost: parseInt(e.target.value),
-                                        }));
-                                        setSelectedPreset('Custom');
-                                    }}
-                                />
-                            </div>
-
-                            <div className="effect-item">
-                                <header>
-                                    <span className="fx-icon"><FiLayers /></span>
-                                    <span className="fx-name">Dynamics</span>
-                                    <span className="fx-value">{effects.compression}%</span>
-                                </header>
-                                <input
-                                    type="range"
-                                    min="0"
-                                    max="100"
-                                    step="1"
-                                    value={effects.compression}
-                                    onChange={(e) => {
-                                        setEffects((prev) => ({
-                                            ...prev,
-                                            compression: parseInt(e.target.value),
-                                        }));
-                                        setSelectedPreset('Custom');
-                                    }}
-                                />
-                            </div>
-
-                            <div className="effect-item">
-                                <header>
-                                    <span className="fx-icon"><FiCpu /></span>
-                                    <span className="fx-name">Saturation</span>
-                                    <span className="fx-value">{effects.distortion}%</span>
-                                </header>
-                                <input
-                                    type="range"
-                                    min="0"
-                                    max="100"
-                                    step="1"
-                                    value={effects.distortion}
-                                    onChange={(e) => {
-                                        setEffects((prev) => ({
-                                            ...prev,
-                                            distortion: parseInt(e.target.value),
-                                        }));
-                                        setSelectedPreset('Custom');
-                                    }}
-                                />
-                            </div>
-                        </div>
-
-                        <div className="sidebar-footer-tools">
-                            <button
-                                className={`ab-toggle ${abActive ? 'active' : ''}`}
-                                onClick={toggleAB}
-                            >
-                                <span className="toggle-indicator"></span>
-                                A/B Comparison {abActive ? 'ON' : 'OFF'}
-                            </button>
-
-                            {userPresets.length > 0 && (
-                                <div className="user-presets-section">
-                                    <h4 className="section-subtitle">My Library</h4>
-                                    <div className="user-preset-grid">
-                                        {userPresets.map((preset) => (
-                                            <div className="preset-card glass-panel" key={preset.id}>
-                                                <button
-                                                    className="preset-apply-btn"
-                                                    onClick={() => applyPreset(preset.name)}
-                                                    title={`Apply ${preset.name}`}
-                                                >
-                                                    <span className="preset-name">{preset.name}</span>
-                                                </button>
-                                                <div className="preset-actions">
-                                                    <button onClick={() => renameUserPreset(preset.id, prompt('Rename preset', preset.name) || preset.name)} title="Rename"><FiEdit2 /></button>
-                                                    <button onClick={() => shareUserPreset(preset)} title="Share"><FiShare2 /></button>
-                                                    <button onClick={() => deleteUserPreset(preset.id)} className="delete" title="Delete"><FiX /></button>
-                                                </div>
-                                            </div>
-                                        ))}
+                {userPresets.length > 0 && (
+                    <section className="saved-presets">
+                        <div className="section-heading-row"><div><h3>Saved presets</h3><p>Your reusable sounds.</p></div></div>
+                        <div className="saved-preset-list">
+                            {userPresets.map((preset) => (
+                                <article className="saved-preset" key={preset.id}>
+                                    <button className="saved-preset-name" onClick={() => applyPreset(preset.name)}>{preset.name}</button>
+                                    <div>
+                                        <button onClick={() => renameUserPreset(preset.id, prompt('Rename preset', preset.name) || preset.name)} aria-label={`Rename ${preset.name}`}><FiEdit2 /></button>
+                                        <button onClick={() => shareUserPreset(preset)} aria-label={`Copy ${preset.name}`}><FiShare2 /></button>
+                                        <button onClick={() => deleteUserPreset(preset.id)} aria-label={`Delete ${preset.name}`}><FiTrash2 /></button>
                                     </div>
-                                </div>
-                            )}
+                                </article>
+                            ))}
                         </div>
                     </section>
-                </div>
-            </aside>
-        </>
+                )}
+
+                <section className="danger-zone">
+                    <div><strong>Start over</strong><small>Remove tracks, presets, and saved settings.</small></div>
+                    <button onClick={resetSession}>Reset session</button>
+                </section>
+            </div>
+        </aside>
     );
 };
 

@@ -44,21 +44,30 @@ Both services have healthchecks; `docker compose ps` should show
 `healthy` for each after ~1 minute (frontend needs the dev server
 compile on first boot).
 
+If 4000/4001 are already taken on your machine, copy `.env.example` to
+`.env` and set `FRONTEND_PORT` / `BACKEND_PORT` to free host ports. `.env`
+is git-ignored.
+
 ### Configuration
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PORT` (backend) | `4001` | API port |
+| `FRONTEND_PORT` / `BACKEND_PORT` (`.env`) | `4000` / `4001` | Host ports published by compose; container ports are always 4000/4001 |
+| `PORT` (backend) | `4001` | API port inside the container |
 | `MAX_AUDIO_MINUTES` | `15` | Max link-import duration |
 | `LINKIMPORT_CONCURRENCY` | `2` | Parallel yt-dlp downloads |
 | `AUDIO_CACHE_MB` | `1024` | Audio cache cap |
 | `AUDIO_CACHE_FILES` | `100` | Max cached files |
 | `YTDLP_COOKIES_FILE` | unset | Set to `/app/data/cookies.txt` when YouTube serves bot-checks |
-| `REACT_APP_API_URL` (frontend) | `http://localhost:4001` | API base baked into the dev bundle |
+| `BACKEND_PROXY_URL` (frontend) | `http://backend:4001` | Where the dev server forwards same-origin `/api/*` calls (docker service DNS; host `npm start` falls back to `http://localhost:4001`) |
 
-Live source mounts (`backend/src`, `frontend/src`, `frontend/public`)
-mean local edits hot-reload inside the containers; dependency changes
-(`package.json`) need `docker compose up --build`.
+Live source mounts (`backend/src`, `backend/tsconfig.json`, `frontend/src`,
+`frontend/public`) mean local edits hot-reload inside the containers;
+dependency changes (`package.json`) need `docker compose up --build`.
+
+The frontend never bakes in an API host: it always calls same-origin
+`/api/*`. Never set `REACT_APP_API_URL` — an absolute URL baked into the
+bundle breaks every visitor whose machine is not yours.
 
 Downloaded audio persists in `backend/data/audio-cache` (host-mounted).
 `cookies.txt` is git-ignored — never commit it.
@@ -72,15 +81,43 @@ Downloaded audio persists in `backend/data/audio-cache` (host-mounted).
 
 ## Deploying (VPS)
 
-1. Clone the repo on the server and `docker compose up --build -d`.
-2. Put a reverse proxy (Caddy/Nginx) in front: `slowedlab.app` → `:4000`,
-   `slowedlab.app/api` → `:4001` (or subdomain for the API).
-3. If the API is public at a non-localhost URL, rebuild the frontend
-   with `REACT_APP_API_URL=https://<your-api>` — Create React App bakes
-   this value in at build/start time, so the dev container must be
-   recreated after changing it.
-4. Keep `backend/data` on a volume; set the `MAX_*` / cache caps above
-   to bound disk use.
+1. Clone the repo on the server and start the stack:
+
+   ```bash
+   docker compose up --build -d
+   docker compose ps          # wait for both services to report healthy
+   ```
+
+2. Point a domain at the server and put nginx in front. A ready-to-use
+   config lives at `deploy/nginx/slowedlab.app.conf` (it proxies `/` to the
+   app and `/api/` to the API, adds caching/security headers and gzip, and
+   leaves port 80 free for the ACME challenge):
+
+   ```bash
+   sudo cp deploy/nginx/security-headers.conf /etc/nginx/snippets/security-headers.conf
+   sudo cp deploy/nginx/slowedlab.app.conf /etc/nginx/sites-available/slowedlab.app
+   sudo ln -sf /etc/nginx/sites-available/slowedlab.app /etc/nginx/sites-enabled/
+   # edit server_name + the two proxy_pass ports to match your .env
+   sudo nginx -t && sudo systemctl reload nginx
+   ```
+
+3. Issue the certificate (this also flips nginx to HTTPS and redirects
+   port 80):
+
+   ```bash
+   sudo certbot --nginx -d your-domain.tld
+   ```
+
+4. Confirm: `https://your-domain.tld` loads the app and
+   `https://your-domain.tld/api/health` returns `{"status":"ok"}`.
+
+Notes:
+
+- The frontend calls the API through same-origin `/api/*`, so changing the
+  public URL or the host ports never requires a frontend rebuild.
+- Keep `backend/data` on a volume; set the `MAX_*` / cache caps above to
+  bound disk use.
+- Certbot renews automatically; `sudo certbot renew --dry-run` verifies it.
 
 ## Manual Setup (Development)
 
@@ -93,20 +130,24 @@ Downloaded audio persists in `backend/data/audio-cache` (host-mounted).
 ```bash
 cd backend
 npm install
-npm run dev
+npm run dev        # ts-node, hot reload → http://localhost:4001
 ```
 
-This starts the Express server on **http://localhost:4001**
+For a compiled run: `npm run build && npm start` (serves the same API from
+`dist/` without ts-node).
 
 ### Frontend (in a new terminal)
 
 ```bash
 cd frontend
 npm install
+cp .env.local.example .env.local   # optional: PORT, OpenAI key
 npm start
 ```
 
-This starts the React dev server on **http://localhost:4000**
+This starts the React dev server on **http://localhost:3000** by default, or
+whatever `PORT` you set in `.env.local`. The dev server proxies `/api/*` to
+`http://localhost:4001`, so keep the backend running on that port.
 
 ## Usage
 

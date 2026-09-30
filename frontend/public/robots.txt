@@ -1,17 +1,8 @@
-# Allow search engines to crawl the site
+# SlowedLab — https://slowedlab.app
+# Audio effects run client-side in the browser; /api/ only serves link import
+# and bug reports, neither of which should be indexed.
 User-agent: *
 Allow: /
-Disallow: /build/
-Disallow: /node_modules/
+Disallow: /api/
 
-# Specific rules for major search engines
-User-agent: Googlebot
-Allow: /
-Crawl-delay: 1
-
-User-agent: Bingbot
-Allow: /
-Crawl-delay: 1
-
-# Sitemap location
 Sitemap: https://slowedlab.app/sitemap.xml

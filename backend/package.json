@@ -2,11 +2,11 @@
   "name": "slowedlab-backend",
   "version": "1.0.0",
   "description": "SlowedLab - Backend API Server",
-  "main": "src/server.ts",
+  "main": "src/server-simple.ts",
   "scripts": {
     "dev": "ts-node src/server-simple.ts",
     "build": "tsc",
-    "start": "node dist/server.js",
+    "start": "node dist/server-simple.js",
     "test": "jest"
   },
   "dependencies": {

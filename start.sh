@@ -18,7 +18,7 @@ if [ ! -d "frontend/node_modules" ]; then
 fi
 
 # Start backend in background
-echo "🚀 Starting backend server on port 3001..."
+echo "🚀 Starting backend server on port 4001..."
 cd backend && npm run dev > ../backend.log 2>&1 &
 BACKEND_PID=$!
 cd ..
@@ -27,7 +27,7 @@ cd ..
 sleep 3
 
 # Start frontend
-echo "🎨 Starting frontend on port 3000..."
+echo "🎨 Starting frontend on port 3000 (override with PORT in frontend/.env.local)..."
 echo "📱 App will open at http://localhost:3000"
 echo ""
 echo "⚡ Features enabled:"

@@ -1,0 +1,29 @@
+# SlowedLab
+
+> SlowedLab is a free, private browser audio studio for changing playback
+> speed, adding reverb, shaping tone with EQ, compression and distortion, and
+> exporting a finished WAV. Audio is processed on the visitor's own device —
+> files are never uploaded to a server.
+
+## What it does
+
+- Variable-speed playback with pitch preservation (slowed / sped up)
+- Reverb plus EQ, compression and distortion
+- Waveform visualization with click-to-seek
+- Presets, including custom ones
+- Import by link (YouTube, SoundCloud) or local file upload
+- Export to WAV
+- Works with MP3, WAV, FLAC, OGG, AAC and more, up to 200 MB
+
+## Key facts
+
+- URL: https://slowedlab.app
+- Pricing: free, no account required
+- License: MIT
+- Privacy: audio processing happens in the browser, not on a server
+- Requirements: a modern browser with Web Audio API support
+
+## Links
+
+- [App](https://slowedlab.app): the audio studio itself
+- [Source](https://github.com/anasfik/SlowedLab): MIT-licensed source code

@@ -4,9 +4,11 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "4001:4001"
+      # Host port is overridable via .env (BACKEND_PORT) to avoid conflicts.
+      - "${BACKEND_PORT:-4001}:4001"
     volumes:
       - ./backend/src:/app/src
+      - ./backend/tsconfig.json:/app/tsconfig.json
       - ./backend/package.json:/app/package.json
       - ./backend/data:/app/data
     environment:
@@ -34,13 +36,14 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "4000:4000"
+      # Host port is overridable via .env (FRONTEND_PORT) to avoid conflicts.
+      - "${FRONTEND_PORT:-4000}:4000"
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/public:/app/public
       - ./frontend/package.json:/app/package.json
     environment:
-      - REACT_APP_API_URL=http://localhost:4001
+      - BACKEND_PROXY_URL=http://backend:4001
       - CHOKIDAR_USEPOLLING=true
       - PORT=4000
     depends_on:
@@ -56,6 +59,23 @@ services:
       timeout: 5s
       retries: 3
       start_period: 60s
+    restart: unless-stopped
+
+  # Production frontend: static build served by nginx, used for the public
+  # site. Enable with: docker compose --profile prod up -d --build frontend-prod
+  # Keep the dev `frontend` service above for hot-reload iteration.
+  frontend-prod:
+    profiles: ["prod"]
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    ports:
+      - "${FRONTEND_PROD_PORT:-4200}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - slowedlab
     restart: unless-stopped
 
 networks:

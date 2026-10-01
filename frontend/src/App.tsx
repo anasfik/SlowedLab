@@ -262,11 +262,24 @@ export default function App() {
 
   const persistTrackToDB = useCallback(async (trackId: string, file: File) => {
     try {
+      // Read the file BEFORE opening the transaction: IndexedDB auto-commits
+      // a transaction as soon as the event loop yields with no pending
+      // request, so awaiting file.arrayBuffer() after tx creation leaves the
+      // transaction inactive and put() throws TransactionInactiveError.
+      const arrayBuffer = await file.arrayBuffer();
       const db = await openDB();
       const tx = db.transaction(DB_CONFIG.store, 'readwrite');
-      const store = tx.objectStore(DB_CONFIG.store);
-      const arrayBuffer = await file.arrayBuffer();
-      store.put({ id: trackId, name: file.name, type: file.type, data: arrayBuffer });
+      tx.objectStore(DB_CONFIG.store).put({
+        id: trackId,
+        name: file.name,
+        type: file.type,
+        data: arrayBuffer,
+      });
+      await new Promise<void>((resolve, reject) => {
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
+      });
     } catch (err) {
       console.warn('Failed to persist track', err);
     }

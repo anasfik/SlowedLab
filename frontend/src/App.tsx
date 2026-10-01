@@ -161,6 +161,21 @@ export const IconRenderer = ({ icon, size = 18 }: { icon: string; size?: number 
   }
 };
 
+// Peak amplitude of channel 0 (strided scan, cheap even for long tracks).
+// Used by the [SlowedLab][decode] diagnostics: a peak near 0 means the
+// browser decoded silence.
+function bufferPeak(buffer: AudioBuffer): number {
+  if (buffer.numberOfChannels < 1) return -1;
+  const ch = buffer.getChannelData(0);
+  const stride = Math.max(1, Math.floor(ch.length / 20000));
+  let peak = 0;
+  for (let s = 0; s < ch.length; s += stride) {
+    const v = Math.abs(ch[s]);
+    if (v > peak) peak = v;
+  }
+  return peak;
+}
+
 export default function App() {
   const [audio, setAudio] = useState<AudioState>({
     playlist: [],
@@ -207,6 +222,24 @@ export default function App() {
   const trebleEQRef = useRef<BiquadFilterNode | null>(null);
   const compressorRef = useRef<DynamicsCompressorNode | null>(null);
   const distortionRef = useRef<WaveShaperNode | null>(null);
+
+  // ?audio-debug=1 signal probe: side-branch analyser + sample timers.
+  const analyserNodeRef = useRef<AnalyserNode | null>(null);
+  const probeTimersRef = useRef<number[]>([]);
+
+  // Tear down the signal probe (timers + analyser tap).
+  const clearAudioProbe = useCallback(() => {
+    probeTimersRef.current.forEach(t => window.clearTimeout(t));
+    probeTimersRef.current = [];
+    if (analyserNodeRef.current) {
+      try {
+        analyserNodeRef.current.disconnect();
+      } catch {
+        // Already disconnected
+      }
+      analyserNodeRef.current = null;
+    }
+  }, []);
 
   const animationFrameRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
@@ -330,6 +363,11 @@ export default function App() {
         const restoredFile = new File([blob], cached.name, { type: cached.type });
         const arrayBuffer: ArrayBuffer = cached.data instanceof ArrayBuffer ? cached.data : await cached.data.arrayBuffer();
         const buffer = await audioContextRef.current.decodeAudioData(arrayBuffer.slice(0));
+        const cachePeak = bufferPeak(buffer);
+        console.log(
+          `[SlowedLab][decode:cache] name="${cached.name}" duration=${buffer.duration.toFixed(2)}s ` +
+          `channels=${buffer.numberOfChannels} peak=${cachePeak < 0 ? 'n/a' : cachePeak.toFixed(4)}`
+        );
         restored.push({
           id: cached.id,
           file: restoredFile,
@@ -511,6 +549,12 @@ export default function App() {
         const buffer = await audioContextRef.current!.decodeAudioData(arrayBuffer);
         setLoadingProgress({ fileName: audioFiles[i].name, progress: 100 });
 
+        const importPeak = bufferPeak(buffer);
+        console.log(
+          `[SlowedLab][decode] name="${audioFiles[i].name}" duration=${buffer.duration.toFixed(2)}s ` +
+          `sampleRate=${buffer.sampleRate} channels=${buffer.numberOfChannels} peak=${importPeak < 0 ? 'n/a' : importPeak.toFixed(4)}`
+        );
+
         // Waveform handled by component
 
         await persistTrackToDB(newTracks[i].id, audioFiles[i]);
@@ -650,6 +694,7 @@ export default function App() {
     if (!track?.buffer || !audioContextRef.current) return;
 
     // Stop any existing audio source to prevent concurrent playback
+    clearAudioProbe();
     if (sourceNodeRef.current) {
       try {
         sourceNodeRef.current.onended = null; // Prevent race conditions
@@ -789,6 +834,52 @@ export default function App() {
     pauseTimeRef.current = safeOffset;
     source.start(0, safeOffset);
 
+    // One-line graph snapshot: every knob that can zero the output.
+    {
+      const ctx = audioContextRef.current!;
+      console.log(
+        `[SlowedLab][play] state=${ctx.state} ctxRate=${ctx.sampleRate} ctxTime=${ctx.currentTime.toFixed(2)} ` +
+        `offset=${safeOffset.toFixed(2)} bufDur=${track.buffer.duration.toFixed(2)} bufCh=${track.buffer.numberOfChannels} ` +
+        `rate=${effects.playbackRate} vol=${volume} dry=${dryGain.gain.value.toFixed(3)} wet=${reverbGain.gain.value.toFixed(3)} ` +
+        `bass=${bassEQ.gain.value} treb=${trebleEQ.gain.value} compRatio=${compressor.ratio.value.toFixed(1)} ` +
+        `dist=${(effects.distortion / 100).toFixed(3)}`
+      );
+    }
+
+    // Signal probe (?audio-debug=1): side-branch analyser fed from the master
+    // gain node. It analyses without altering the sound. RMS near 0 while the
+    // clock advances means the graph itself is silent; RMS above 0 with no
+    // audible output means the blockage is downstream of the page.
+    if (new URLSearchParams(window.location.search).get('audio-debug') === '1' && audioContextRef.current) {
+      const analyser = audioContextRef.current.createAnalyser();
+      analyser.fftSize = 2048;
+      gainNode.connect(analyser);
+      analyserNodeRef.current = analyser;
+      const samples = new Float32Array(analyser.fftSize);
+      [500, 1500, 3000].forEach(delay => {
+        const timer = window.setTimeout(() => {
+          const ctx = audioContextRef.current;
+          const tap = analyserNodeRef.current;
+          if (!ctx || !tap) return;
+          tap.getFloatTimeDomainData(samples);
+          const stride = 4;
+          let sum = 0;
+          let n = 0;
+          for (let s = 0; s < samples.length; s += stride) {
+            sum += samples[s] * samples[s];
+            n++;
+          }
+          const rms = Math.sqrt(sum / Math.max(1, n));
+          console.log(
+            `[SlowedLab][probe] t=${(delay / 1000).toFixed(1)}s rms=${rms.toFixed(4)} ` +
+            `ctxTime=${ctx.currentTime.toFixed(2)} ctxState=${ctx.state}` +
+            (rms > 0.0005 ? ' (signal flowing)' : ' (graph silent or stalled)')
+          );
+        }, delay);
+        probeTimersRef.current.push(timer);
+      });
+    }
+
     source.onended = () => {
       if (!playingRef.current) return;
       playingRef.current = false;
@@ -903,6 +994,7 @@ export default function App() {
 
   // Pause audio
   const pauseAudio = useCallback(() => {
+    clearAudioProbe();
     if (sourceNodeRef.current) {
       sourceNodeRef.current.onended = null; // Avoid state reset on manual pause
       sourceNodeRef.current.stop();
@@ -932,6 +1024,7 @@ export default function App() {
 
   // Stop audio
   const stopAudio = useCallback(() => {
+    clearAudioProbe();
     if (sourceNodeRef.current) {
       sourceNodeRef.current.onended = null;
       sourceNodeRef.current.stop();

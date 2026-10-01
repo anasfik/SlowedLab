@@ -532,6 +532,10 @@ input[type='range']::-moz-range-thumb { width: 9px; height: 9px; border: 4px sol
 .status-toast { display: grid; grid-template-columns: 20px minmax(0, 1fr) 36px; align-items: center; gap: 10px; padding: 10px 10px 10px 15px; color: var(--text-soft); font-size: 11px; }
 .status-toast > svg { color: var(--accent); }
 .status-toast button { display: grid; width: 36px; height: 36px; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--text-muted); }
+.audio-blocked-toast { align-items: start; }
+.audio-blocked-toast strong { color: var(--text); }
+.audio-blocked-toast .toast-actions { display: flex; gap: 6px; }
+.audio-blocked-toast .toast-actions button { width: auto; height: 32px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--text-soft); font-size: 11px; }
 
 .modal-layer { position: fixed; z-index: 70; inset: 0; display: grid; place-items: center; padding: 16px; background: rgba(2, 3, 2, 0.82); animation: fade-in 200ms var(--ease) both; }
 .report-dialog { width: min(560px, 100%); overflow: hidden; border: 1px solid var(--line-strong); border-radius: var(--radius-lg); background: #171914; box-shadow: 0 30px 100px rgba(0, 0, 0, 0.55); animation: workspace-in 300ms var(--ease) both; }

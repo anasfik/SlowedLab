@@ -8,7 +8,8 @@ import {
   FiPlay, FiPause, FiSkipBack, FiSkipForward, FiMusic,
   FiActivity, FiVolume2, FiCpu,
   FiHeadphones, FiStar, FiZap as FiBolt, FiDroplet as FiDiamond, FiSliders,
-  FiSettings, FiX, FiList, FiTrash2, FiUploadCloud, FiFolder, FiLink
+  FiSettings, FiX, FiList, FiTrash2, FiUploadCloud, FiFolder, FiLink,
+  FiVolumeX
 } from 'react-icons/fi';
 import Topbar from './components/Topbar.tsx';
 import Sidebar from './components/Sidebar.tsx';
@@ -191,6 +192,10 @@ export default function App() {
   const [bugEmail, setBugEmail] = useState('');
   const [bugSubmitting, setBugSubmitting] = useState(false);
   const [bugMessage, setBugMessage] = useState<string | null>(null);
+  // True while the browser refuses to run the AudioContext (site muted,
+  // sound blocked, strict autoplay/fingerprinting). Shown as a notice with
+  // recovery steps instead of failing silently.
+  const [audioBlocked, setAudioBlocked] = useState(false);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
@@ -656,10 +661,31 @@ export default function App() {
       sourceNodeRef.current = null;
     }
 
-    // Ensure context is ready
-    if (audioContextRef.current.state === 'suspended') {
-      await audioContextRef.current.resume();
+    // Ensure context is ready. resume() can resolve while the browser still
+    // refuses audio (site muted, sound blocked, strict autoplay policy), so
+    // verify the state instead of pretending playback started. Chrome and
+    // Brave stay 'suspended' here while Firefox is more lenient, which is why
+    // the same build can play in one browser and stay silent in another.
+    if (audioContextRef.current.state !== 'running') {
+      try {
+        await audioContextRef.current.resume();
+      } catch (resumeErr) {
+        console.warn('AudioContext.resume() rejected', resumeErr);
+      }
     }
+    if (audioContextRef.current.state !== 'running') {
+      const ctx = audioContextRef.current;
+      console.warn(
+        'Audio output blocked by the browser:',
+        `state=${ctx.state} sampleRate=${ctx.sampleRate} ` +
+        `baseLatency=${ctx.baseLatency ?? 'n/a'} outputLatency=${ctx.outputLatency ?? 'n/a'} ` +
+        `ua=${navigator.userAgent.slice(0, 80)}`
+      );
+      playingRef.current = false;
+      setAudioBlocked(true);
+      return;
+    }
+    setAudioBlocked(false);
 
     // Create audio nodes
     const source = audioContextRef.current.createBufferSource();
@@ -751,11 +777,17 @@ export default function App() {
     compressorRef.current = compressor;
     distortionRef.current = distortion;
 
-    // Start playback
+    // Start playback. Clamp the offset into the buffer: Chrome/Brave throw
+    // InvalidStateError for out-of-range offsets where Firefox is lenient.
     startTimeRef.current = audioContextRef.current.currentTime;
     lastPlaybackRateRef.current = effects.playbackRate;
     playbackRateRef.current = effects.playbackRate;
-    source.start(0, pauseTimeRef.current);
+    const safeOffset = Math.min(
+      Math.max(pauseTimeRef.current || 0, 0),
+      Math.max(track.buffer.duration - 0.05, 0)
+    );
+    pauseTimeRef.current = safeOffset;
+    source.start(0, safeOffset);
 
     source.onended = () => {
       if (!playingRef.current) return;
@@ -1578,6 +1610,22 @@ export default function App() {
         <div className="progress-toast" role="status">
           <div><strong>Adding {loadingProgress.fileName}</strong><span>{loadingProgress.progress}%</span></div>
           <progress max="100" value={loadingProgress.progress}>{loadingProgress.progress}%</progress>
+        </div>
+      )}
+
+      {audioBlocked && (
+        <div className="status-toast audio-blocked-toast" role="alert">
+          <FiVolumeX aria-hidden="true" />
+          <span>
+            <strong>No audio output.</strong> Your browser is blocking sound for this
+            site. Unmute the tab, allow sound for slowedlab.app in site settings
+            (Brave: lion icon → Shields → allow sound/fingerprinting), then press
+            play again.
+          </span>
+          <span className="toast-actions">
+            <button onClick={() => { setAudioBlocked(false); togglePlayback(); }} aria-label="Try playing again">Retry</button>
+            <button onClick={() => setAudioBlocked(false)} aria-label="Dismiss message"><FiX /></button>
+          </span>
         </div>
       )}
 

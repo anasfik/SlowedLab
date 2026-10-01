@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import AudioOutputTest from './components/AudioOutputTest';
 import {
   FiPlay, FiPause, FiSkipBack, FiSkipForward, FiMusic,
   FiActivity, FiVolume2, FiCpu,
@@ -1610,6 +1611,9 @@ export default function App() {
       </main>
 
       <footer className="transport-dock" aria-label="Playback controls">
+        {new URLSearchParams(window.location.search).get('audio-debug') === '1' && (
+          <AudioOutputTest getContext={() => audioContextRef.current} stopPlayback={stopAudio} />
+        )}
         <div className="dock-track">
           <span className="dock-art"><img src="/logo-mark.svg" alt="" /></span>
           <p><strong>{currentTrack ? currentTrack.file.name.replace(/\.[^/.]+$/, '') : 'No track selected'}</strong><small>{currentTrack ? activePresetLabel : 'Add audio to begin'}</small></p>

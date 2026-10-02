@@ -6,7 +6,9 @@ interface Props {
   playbackRate: number;
   onSeek: (time: number) => void;
   height?: number;
-  bufferPosition?: number; // optional: exact buffer position (seconds) for precise progress
+  // Live position source. Kept as a getter (not a value) so the playhead can
+  // run at full frame rate from App's rAF loop without re-rendering React.
+  getPosition: () => { position: number; time: number };
 }
 
 // Compute peaks once per buffer+width for performant drawing
@@ -31,10 +33,20 @@ function computePeaks(buffer: AudioBuffer, targetBars: number): number[] {
   return peaks;
 }
 
-export default function Waveform({ buffer, currentTime, playbackRate, onSeek, height = 180, bufferPosition }: Props) {
+// Panel the playhead sits at before the view starts scrolling.
+const TARGET_PLAYHEAD = 0.65;
+
+export default function Waveform({ buffer, currentTime, playbackRate, onSeek, height = 180, getPosition }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [width, setWidth] = useState(1200);
+
+  // Bars never change between frames, so they are rendered once per geometry
+  // into two offscreen layers (played / unplayed) and blitted each frame.
+  const playedLayerRef = useRef<HTMLCanvasElement | null>(null);
+  const plainLayerRef = useRef<HTMLCanvasElement | null>(null);
+  const geometryRef = useRef({ w: 0, h: 0, scaledW: 0, dpr: 1, hasBuffer: false });
+  const lastDrawnRef = useRef(-1);
 
   // Resize observer for responsiveness
   useEffect(() => {
@@ -53,95 +65,149 @@ export default function Waveform({ buffer, currentTime, playbackRate, onSeek, he
     return computePeaks(buffer, targetBars);
   }, [buffer, width]);
 
-  // Draw waveform and playhead/progress, adapting to playback rate
+  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+
+  const theme = useMemo(() => {
+    const styles = getComputedStyle(document.documentElement);
+    const read = (name: string, fallback: string) => styles.getPropertyValue(name).trim() || fallback;
+    return {
+      waveform: read('--waveform', '#ffb45b'),
+      played: read('--waveform-played', '#ff8d3a'),
+      muted: read('--waveform-muted', '#4b4d48'),
+      playhead: read('--playhead', '#fff7ec'),
+      bg: read('--waveform-bg', '#171915'),
+      dim: 'rgba(13, 15, 12, 0.36)',
+    };
+  }, []);
+
+  // Static layer: one-time bar render, rebuilt only when geometry changes.
   useEffect(() => {
+    const w = Math.max(1, width);
+    const h = Math.max(1, height);
+    const rate = Math.max(0.0001, playbackRate);
+    const scaledW = Math.max(w, Math.floor(w * (1 / rate)));
+
+    geometryRef.current = { w, h, scaledW, dpr, hasBuffer: !!buffer && peaks.length > 0 };
+
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
 
-    const dpr = window.devicePixelRatio || 1;
-    const w = Math.max(1, width);
-    const h = Math.max(1, height);
     canvas.width = Math.floor(w * dpr);
     canvas.height = Math.floor(h * dpr);
     canvas.style.width = `${w}px`;
     canvas.style.height = `${h}px`;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    ctx.clearRect(0, 0, w, h);
-
-    const styles = getComputedStyle(document.documentElement);
-    const waveformColor = styles.getPropertyValue('--waveform').trim() || '#ffb45b';
-    const waveformPlayed = styles.getPropertyValue('--waveform-played').trim() || '#ff8d3a';
-    const waveformMuted = styles.getPropertyValue('--waveform-muted').trim() || '#4b4d48';
-    const playheadColor = styles.getPropertyValue('--playhead').trim() || '#fff7ec';
-
-    ctx.fillStyle = styles.getPropertyValue('--waveform-bg').trim() || '#171915';
+    ctx.fillStyle = theme.bg;
     ctx.fillRect(0, 0, w, h);
 
     if (!buffer || peaks.length === 0) {
-      // Placeholder center line
-      ctx.strokeStyle = waveformMuted;
+      playedLayerRef.current = null;
+      plainLayerRef.current = null;
+      ctx.strokeStyle = theme.muted;
       ctx.beginPath();
       ctx.moveTo(0, h / 2);
       ctx.lineTo(w, h / 2);
       ctx.stroke();
+      lastDrawnRef.current = -1;
       return;
     }
 
-    // Time scaling with playback rate
-    const rate = Math.max(0.0001, playbackRate);
-    const total = buffer.duration / rate; // actual playback duration (timeline seconds)
-    const progress = bufferPosition != null
-      ? Math.max(0, Math.min(1, bufferPosition / buffer.duration))
-      : Math.max(0, Math.min(1, currentTime / total));
+    const makeLayer = (color: string) => {
+      const layer = document.createElement('canvas');
+      layer.width = Math.floor(scaledW * dpr);
+      layer.height = Math.floor(h * dpr);
+      const lctx = layer.getContext('2d');
+      if (!lctx) return null;
+      lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      lctx.fillStyle = color;
+      const barW = scaledW / peaks.length;
+      for (let i = 0; i < peaks.length; i++) {
+        const barH = Math.max(2, peaks[i] * (h * 0.8));
+        lctx.fillRect(Math.floor(i * barW), Math.floor((h - barH) / 2), Math.max(1, barW - 0.5), barH);
+      }
+      return layer;
+    };
 
-    // Scale the content width to reflect playback rate
-    const speedScale = 1 / rate; // slower => wider, faster => narrower
-    const scaledW = Math.max(w, Math.floor(w * speedScale));
-    const playheadPixel = progress * scaledW;
-    const targetPlayheadX = w * 0.65; // playhead moves across viewport, pans when reaching 65% from left
-    let panOffset = 0;
-    let playheadX = playheadPixel;
+    plainLayerRef.current = makeLayer(theme.waveform);
+    playedLayerRef.current = makeLayer(theme.played);
+    lastDrawnRef.current = -1;
+  }, [buffer, peaks, width, height, playbackRate, dpr, theme]);
 
-    if (scaledW > w) {
-      // Pan content to keep playhead at targetPlayheadX position in viewport
-      panOffset = Math.max(0, Math.min(playheadPixel - targetPlayheadX, scaledW - w));
-      playheadX = playheadPixel - panOffset; // playhead position in viewport
-    } else {
-      playheadX = playheadPixel; // waveform fits viewport, no panning
-      panOffset = 0;
-    }
+  // Per-frame composite. Cheap: two blits + one rect + one line, and skipped
+  // entirely when the playhead has not crossed a pixel boundary.
+  const draw = useCallback(
+    (progress: number) => {
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext('2d');
+      if (!canvas || !ctx) return;
+      const { w, h, scaledW } = geometryRef.current;
 
-    // Draw bars with scaling and panning
-    const barW = Math.max(1, scaledW / peaks.length);
-    for (let i = 0; i < peaks.length; i++) {
-      const v = peaks[i];
-      const barH = Math.max(2, v * (h * 0.8));
-      const rawX = i * barW;
-      const x = Math.floor(rawX - panOffset);
-      const y = Math.floor((h - barH) / 2);
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = theme.bg;
+      ctx.fillRect(0, 0, w, h);
 
-      if (x + barW < 0 || x > w) continue; // clip to viewport
+      if (!geometryRef.current.hasBuffer) return;
 
-      ctx.fillStyle = rawX <= playheadPixel ? waveformPlayed : waveformColor;
-      ctx.fillRect(x, y, Math.max(1, barW - 0.5), barH);
-    }
+      const playheadPixel = progress * scaledW;
+      const panOffset =
+        scaledW > w
+          ? Math.max(0, Math.min(playheadPixel - w * TARGET_PLAYHEAD, scaledW - w))
+          : 0;
 
-    // Dim the unplayed portion for visual feedback relative to playhead
-    // The dimming should cover everything after the actual playhead position in the scaled content
-    const dimStartX = Math.floor(playheadPixel - panOffset);
-    ctx.fillStyle = 'rgba(13, 15, 12, 0.36)';
-    ctx.fillRect(dimStartX, 0, scaledW - playheadPixel, h);
+      const plain = plainLayerRef.current;
+      if (!plain) return;
+      ctx.drawImage(plain, panOffset * dpr, 0, w * dpr, h * dpr, 0, 0, w, h);
 
-    // Playhead line
-    ctx.strokeStyle = playheadColor;
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.moveTo(Math.floor(playheadX) + 0.5, 0);
-    ctx.lineTo(Math.floor(playheadX) + 0.5, h);
-    ctx.stroke();
-  }, [buffer, peaks, width, height, currentTime, playbackRate, bufferPosition]);
+      // Repaint the played portion in the accent colour.
+      const playedX = playheadPixel - panOffset;
+      if (playedX > 0) {
+        const played = playedLayerRef.current;
+        if (played) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(0, 0, Math.min(w, playedX), h);
+          ctx.clip();
+          ctx.drawImage(played, panOffset * dpr, 0, w * dpr, h * dpr, 0, 0, w, h);
+          ctx.restore();
+        }
+      }
+
+      // Dim everything after the playhead.
+      if (playedX < w) {
+        ctx.fillStyle = theme.dim;
+        ctx.fillRect(Math.max(0, Math.floor(playedX)), 0, w, h);
+      }
+
+      ctx.strokeStyle = theme.playhead;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(Math.floor(Math.max(0, Math.min(w, playedX))) + 0.5, 0);
+      ctx.lineTo(Math.floor(Math.max(0, Math.min(w, playedX))) + 0.5, h);
+      ctx.stroke();
+    },
+    [dpr, theme]
+  );
+
+  // Single long-lived rAF. Idle frames cost one integer compare.
+  useEffect(() => {
+    let frame = 0;
+    const tick = () => {
+      const { position, time } = getPosition();
+      const geo = geometryRef.current;
+      const duration = buffer?.duration || 0;
+      const progress = duration > 0 ? Math.max(0, Math.min(1, position / duration)) : 0;
+      const marker = Math.round(progress * (geo.scaledW || 1));
+      if (marker !== lastDrawnRef.current) {
+        lastDrawnRef.current = marker;
+        draw(progress);
+      }
+      void time;
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [draw, getPosition, buffer]);
 
   // Seeking by click/drag
   const handlePointer = useCallback(
@@ -151,26 +217,22 @@ export default function Waveform({ buffer, currentTime, playbackRate, onSeek, he
       const x = e.clientX - rect.left;
       const rate = Math.max(0.0001, playbackRate);
       const total = buffer.duration / rate;
+      const { w, scaledW } = geometryRef.current;
 
-      // Calculate current pan state to account for waveform scrolling
-      const speedScale = 1 / rate;
-      const scaledW = Math.max(rect.width, Math.floor(rect.width * speedScale));
-      const progress = bufferPosition != null
-        ? Math.max(0, Math.min(1, bufferPosition / buffer.duration))
-        : Math.max(0, Math.min(1, currentTime / total));
+      const { position } = getPosition();
+      const progress = buffer.duration > 0 ? Math.max(0, Math.min(1, position / buffer.duration)) : 0;
       const playheadPixel = progress * scaledW;
-      const targetPlayheadX = rect.width * 0.65;
-      const panOffset = scaledW > rect.width ? Math.max(0, Math.min(playheadPixel - targetPlayheadX, scaledW - rect.width)) : 0;
+      const panOffset =
+        scaledW > w ? Math.max(0, Math.min(playheadPixel - w * TARGET_PLAYHEAD, scaledW - w)) : 0;
 
-      // Map viewport X to scaled waveform position, accounting for pan
-      const scaledX = x + panOffset;
-      const pct = Math.max(0, Math.min(1, scaledX / scaledW));
+      const pct = Math.max(0, Math.min(1, (x + panOffset) / scaledW));
       onSeek(pct * total);
     },
-    [buffer, playbackRate, currentTime, bufferPosition, onSeek]
+    [buffer, playbackRate, getPosition, onSeek]
   );
 
   const totalDuration = buffer ? buffer.duration / Math.max(0.0001, playbackRate) : 0;
+  const ariaTime = currentTime;
 
   return (
     <div ref={containerRef} className="waveform-canvas full-width" style={{ height }}>
@@ -181,13 +243,14 @@ export default function Waveform({ buffer, currentTime, playbackRate, onSeek, he
         aria-label="Track position"
         aria-valuemin={0}
         aria-valuemax={Math.round(totalDuration)}
-        aria-valuenow={Math.round(currentTime)}
-        aria-valuetext={`${Math.floor(currentTime / 60)} minutes ${Math.floor(currentTime % 60)} seconds`}
+        aria-valuenow={Math.round(ariaTime)}
+        aria-valuetext={`${Math.floor(ariaTime / 60)} minutes ${Math.floor(ariaTime % 60)} seconds`}
         onKeyDown={(event) => {
           if (!buffer) return;
+          const current = getPosition().time;
           if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
             event.preventDefault();
-            onSeek(Math.max(0, Math.min(totalDuration, currentTime + (event.key === 'ArrowLeft' ? -5 : 5))));
+            onSeek(Math.max(0, Math.min(totalDuration, current + (event.key === 'ArrowLeft' ? -5 : 5))));
           }
           if (event.key === 'Home') { event.preventDefault(); onSeek(0); }
           if (event.key === 'End') { event.preventDefault(); onSeek(totalDuration); }

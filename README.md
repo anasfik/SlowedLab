@@ -6,7 +6,7 @@ An advanced real-time audio player supporting all effects (slow, reverb) that el
 
 ## Features
 
-- 🎚️ Time-stretching with pitch preservation
+- 🎚️ Playback speed from 0.50× to 1.50×
 - 🌊 Professional reverb engine
 - 🎵 Real-time audio effects (EQ, compression, distortion)
 - 📊 Waveform visualization
@@ -175,7 +175,7 @@ whatever `PORT` you set in `.env.local`. The dev server proxies `/api/*` to
 1. **Open the app** at http://localhost:4000
 2. **Upload an audio file** using the upload area (supports MP3, WAV, FLAC, OGG, AAC, and more)
 3. **Apply effects**:
-   - ⚡ **Time Stretch**: Adjust playback speed while preserving pitch
+   - ⚡ **Speed**: Slow the track down or push it faster. Pitch shifts with it, which is what gives the slowed sound its depth.
    - ✨ **Reverb**: Add spatial depth and ambient effects
    - **EQ**: Shape frequency response (bass, treble)
    - **Compressor**: Control dynamic range

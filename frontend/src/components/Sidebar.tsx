@@ -1,5 +1,7 @@
 import { FiClock, FiCpu, FiEdit2, FiLayers, FiRotateCcw, FiShare2, FiTrash2, FiVolume2, FiWind, FiX, FiZap } from 'react-icons/fi';
 import { EffectSettings, UserPreset } from '../App';
+import { useDialogFocus } from '../hooks/useDialogFocus';
+import { useState } from 'react';
 
 interface SidebarProps {
     isOpen: boolean;
@@ -49,10 +51,14 @@ const Sidebar: React.FC<SidebarProps> = ({
     resetSession,
     resetPresets,
 }) => {
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
+    const [pendingReset, setPendingReset] = useState(false);
+    const panelRef = useDialogFocus<HTMLElement>(isOpen, onClose);
     if (!isOpen) return null;
 
     return (
-        <aside className="studio-drawer effects-drawer" role="dialog" aria-modal="true" aria-labelledby="effects-title">
+        <aside ref={panelRef} tabIndex={-1} className="studio-drawer effects-drawer" role="dialog" aria-modal="true" aria-labelledby="effects-title">
             <header className="drawer-heading">
                 <div>
                     <p className="overline">Sound controls</p>
@@ -113,11 +119,33 @@ const Sidebar: React.FC<SidebarProps> = ({
                         <div className="saved-preset-list">
                             {userPresets.map((preset) => (
                                 <article className="saved-preset" key={preset.id}>
-                                    <button className="saved-preset-name" onClick={() => applyPreset(preset.name)}>{preset.name}</button>
+                                    {editingId === preset.id ? (
+                                        <input
+                                            className="saved-preset-rename"
+                                            defaultValue={preset.name}
+                                            maxLength={40}
+                                            autoFocus
+                                            aria-label={`Rename ${preset.name}`}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    renameUserPreset(preset.id, e.currentTarget.value);
+                                                    setEditingId(null);
+                                                } else if (e.key === 'Escape') {
+                                                    setEditingId(null);
+                                                }
+                                            }}
+                                            onBlur={(e) => {
+                                                renameUserPreset(preset.id, e.currentTarget.value);
+                                                setEditingId(null);
+                                            }}
+                                        />
+                                    ) : (
+                                        <button className="saved-preset-name" onClick={() => applyPreset(preset.name)}>{preset.name}</button>
+                                    )}
                                     <div>
-                                        <button onClick={() => renameUserPreset(preset.id, prompt('Rename preset', preset.name) || preset.name)} aria-label={`Rename ${preset.name}`}><FiEdit2 /></button>
-                                        <button onClick={() => shareUserPreset(preset)} aria-label={`Copy ${preset.name}`}><FiShare2 /></button>
-                                        <button onClick={() => deleteUserPreset(preset.id)} aria-label={`Delete ${preset.name}`}><FiTrash2 /></button>
+                                        <button onClick={() => setEditingId(preset.id)} aria-label={`Rename ${preset.name}`}><FiEdit2 /></button>
+                                        <button onClick={() => shareUserPreset(preset)} aria-label={`Copy ${preset.name} to clipboard`}><FiShare2 /></button>
+                                        <button onClick={() => setPendingDelete({ id: preset.id, name: preset.name })} aria-label={`Delete ${preset.name}`}><FiTrash2 /></button>
                                     </div>
                                 </article>
                             ))}
@@ -125,10 +153,46 @@ const Sidebar: React.FC<SidebarProps> = ({
                     </section>
                 )}
 
+                {pendingDelete && (
+                    <section className="danger-zone" role="alertdialog" aria-label={`Confirm deleting ${pendingDelete.name}`}>
+                        <div><strong>Delete “{pendingDelete.name}”?</strong><small>This cannot be undone.</small></div>
+                        <div className="confirm-actions">
+                            <button onClick={() => setPendingDelete(null)}>Cancel</button>
+                            <button
+                                className="confirm-accept"
+                                onClick={() => {
+                                    deleteUserPreset(pendingDelete.id);
+                                    setPendingDelete(null);
+                                }}
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    </section>
+                )}
+
                 <section className="danger-zone">
                     <div><strong>Start over</strong><small>Remove tracks, presets, and saved settings.</small></div>
-                    <button onClick={resetSession}>Reset session</button>
+                    <button onClick={() => setPendingReset(true)}>Reset session</button>
                 </section>
+
+                {pendingReset && (
+                    <section className="danger-zone" role="alertdialog" aria-label="Confirm resetting the session">
+                        <div><strong>Reset everything?</strong><small>Tracks, saved presets and settings are removed.</small></div>
+                        <div className="confirm-actions">
+                            <button onClick={() => setPendingReset(false)}>Cancel</button>
+                            <button
+                                className="confirm-accept"
+                                onClick={() => {
+                                    setPendingReset(false);
+                                    resetSession();
+                                }}
+                            >
+                                Reset
+                            </button>
+                        </div>
+                    </section>
+                )}
             </div>
         </aside>
     );

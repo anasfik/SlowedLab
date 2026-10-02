@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { FiX } from 'react-icons/fi';
+import { useDialogFocus } from '../hooks/useDialogFocus';
 
 interface Props {
   open: boolean;
@@ -32,13 +33,11 @@ export default function BugReportPanel({
   onChangeEmail,
   onSubmit,
 }: Props) {
+  const panelRef = useDialogFocus<HTMLElement>(open, onClose);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-      }
       if ((e.key === 'Enter' && (e.metaKey || e.ctrlKey))) {
         e.preventDefault();
         onSubmit();
@@ -46,7 +45,7 @@ export default function BugReportPanel({
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [open, onClose, onSubmit]);
+  }, [open, onSubmit]);
 
   if (!open) return null;
 
@@ -54,7 +53,7 @@ export default function BugReportPanel({
 
   return (
     <div className="modal-layer" onClick={onClose}>
-      <aside className="report-dialog" role="dialog" aria-modal="true" aria-labelledby="report-title" onClick={(e) => e.stopPropagation()}>
+      <aside ref={panelRef} tabIndex={-1} className="report-dialog" role="dialog" aria-modal="true" aria-labelledby="report-title" onClick={(e) => e.stopPropagation()}>
         <div className="drawer-header">
           <div><p className="overline">Feedback</p><h2 id="report-title">Report a problem</h2></div>
           <button className="icon-button" onClick={onClose} aria-label="Close report form"><FiX /></button>

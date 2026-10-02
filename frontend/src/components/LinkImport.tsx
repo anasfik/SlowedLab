@@ -16,11 +16,6 @@ interface Meta {
 
 type Phase = 'idle' | 'resolving' | 'ready' | 'working' | 'failed';
 
-function apiBase(): string {
-  const base = (process.env.REACT_APP_API_URL || '').replace(/\/$/, '');
-  return base;
-}
-
 function formatDuration(total: number): string {
   const mins = Math.floor(total / 60);
   const secs = Math.floor(total % 60);
@@ -71,7 +66,7 @@ export default function LinkImport({ onFile, compact }: LinkImportProps) {
     setError(null);
     setMeta(null);
     try {
-      const res = await fetch(`${apiBase()}/api/audio/resolve`, {
+      const res = await fetch('/api/audio/resolve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: trimmed }),
@@ -95,7 +90,7 @@ export default function LinkImport({ onFile, compact }: LinkImportProps) {
     setProgress(0);
     setError(null);
     try {
-      const res = await fetch(`${apiBase()}/api/audio/jobs`, {
+      const res = await fetch('/api/audio/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: trimmed }),
@@ -105,13 +100,13 @@ export default function LinkImport({ onFile, compact }: LinkImportProps) {
       if (data.meta) setMeta(data.meta);
       pollRef.current = window.setInterval(async () => {
         try {
-          const status = await fetch(`${apiBase()}/api/audio/jobs/${data.jobId}`);
+          const status = await fetch(`/api/audio/jobs/${data.jobId}`);
           const s = await status.json();
           if (!status.ok) throw new Error(s.error || 'Download failed.');
           setProgress(s.job.progress || 0);
           if (s.job.status === 'done') {
             if (pollRef.current) window.clearInterval(pollRef.current);
-            const fileRes = await fetch(`${apiBase()}${s.job.fileUrl}`);
+            const fileRes = await fetch(`${s.job.fileUrl}`);
             if (!fileRes.ok) throw new Error('Could not fetch the finished audio.');
             const blob = await fileRes.blob();
             onFile(new File([blob], s.job.fileName || 'link-import.mp3', { type: 'audio/mpeg' }));

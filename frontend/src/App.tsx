@@ -10,7 +10,7 @@ import {
   FiActivity, FiVolume2, FiCpu,
   FiHeadphones, FiStar, FiZap as FiBolt, FiDroplet as FiDiamond, FiSliders,
   FiSettings, FiX, FiList, FiTrash2, FiUploadCloud, FiFolder, FiLink,
-  FiVolumeX
+  FiVolumeX, FiInfo
 } from 'react-icons/fi';
 import Topbar from './components/Topbar.tsx';
 import Sidebar from './components/Sidebar.tsx';
@@ -18,6 +18,8 @@ import Waveform from './components/Waveform.tsx';
 import LinkImport from './components/LinkImport.tsx';
 import BugReportPanel from './components/BugReportPanel.tsx';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.ts';
+import { useDialogFocus } from './hooks/useDialogFocus.ts';
+import { buildChain, updateChain, type ChainNodes, type EffectSettings } from './audioGraph';
 
 // Extend window interface for bookmark functionality
 declare global {
@@ -44,14 +46,7 @@ export interface AudioState {
   error: string | null;
 }
 
-export interface EffectSettings {
-  playbackRate: number;
-  reverbAmount: number;
-  bassBoost: number;
-  trebleBoost: number;
-  compression: number;
-  distortion: number;
-}
+export type { EffectSettings };
 
 export interface Preset {
   name: string;
@@ -73,11 +68,29 @@ const STORAGE_KEYS = {
 
 const DB_CONFIG = {
   name: 'slowedlab-cache',
-  version: 1,
+  version: 2,
   store: 'tracks',
 };
 
+// Cache ceiling. Browsers cap origin storage (often a few hundred MB), and a
+// QuotaExceededError is silent unless handled: the user reloads, the track is
+// gone with no explanation. Evict oldest-first instead, and report failures.
+const MAX_CACHED_BYTES = 400 * 1024 * 1024;
+const MAX_CACHED_TRACKS = 12;
+
+interface CachedTrack {
+  id: string;
+  name: string;
+  type: string;
+  data: ArrayBuffer;
+  savedAt: number;
+  bytes: number;
+}
+
 const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200MB limit
+// Verbose audio diagnostics only with ?audio-debug=1; shipping them on every
+// import/play spams the console of every real user.
+const DEBUG_AUDIO = new URLSearchParams(window.location.search).get('audio-debug') === '1';
 const SUPPORTED_FORMATS = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/flac', 'audio/mp4', 'audio/aac', 'audio/webm'];
 
 interface PlayHistoryItem {
@@ -212,17 +225,16 @@ export default function App() {
   // sound blocked, strict autoplay/fingerprinting). Shown as a notice with
   // recovery steps instead of failing silently.
   const [audioBlocked, setAudioBlocked] = useState(false);
+  const [cacheNotice, setCacheNotice] = useState<string | null>(null);
+  const [dropNotice, setDropNotice] = useState<string | null>(null);
+  const [pendingClear, setPendingClear] = useState(false);
+  const [muted, setMuted] = useState(false);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
-  const gainNodeRef = useRef<GainNode | null>(null);
   const convolverNodeRef = useRef<ConvolverNode | null>(null);
-  const dryGainRef = useRef<GainNode | null>(null);
-  const wetGainRef = useRef<GainNode | null>(null);
-  const bassEQRef = useRef<BiquadFilterNode | null>(null);
-  const trebleEQRef = useRef<BiquadFilterNode | null>(null);
-  const compressorRef = useRef<DynamicsCompressorNode | null>(null);
-  const distortionRef = useRef<WaveShaperNode | null>(null);
+  // Live chain nodes, rebuilt per playback. Single ref instead of one per node.
+  const chainNodesRef = useRef<ChainNodes | null>(null);
 
   // ?audio-debug=1 signal probe: side-branch analyser + sample timers.
   const analyserNodeRef = useRef<AnalyserNode | null>(null);
@@ -253,7 +265,26 @@ export default function App() {
   const currentTrackRef = useRef<AudioFile | null>(null);
   const playAudioRef = useRef<() => void>(() => { });
   const stopAudioRef = useRef<() => void>(() => { });
-  const [bufferPosition, setBufferPosition] = useState(0);
+
+  // Playback position lives in refs, not state: it changes every frame and
+  // rendering the whole tree at 60Hz is unaffordable. Waveform reads it via
+  // getPosition() on its own rAF; React state is synced at 10Hz purely so the
+  // text readouts and aria-valuenow stay current.
+  const currentTimeRef = useRef(0);
+  const bufferPositionRef = useRef(0);
+  const lastUiSyncRef = useRef(0);
+  const getPosition = useCallback(() => ({
+    position: bufferPositionRef.current,
+    time: currentTimeRef.current,
+  }), []);
+
+  // Directory drops and stray text report as items with no type; treat any
+  // typeInfo as a potential file and let validation decide.
+  const hasFiles = (dt: DataTransfer | null): boolean => {
+    if (!dt) return false;
+    if (dt.types && dt.types.includes('Files')) return true;
+    return dt.items.length > 0 && Array.from(dt.items).some(item => item.kind === 'file');
+  };
 
   // Validate audio file
   const validateAudioFile = useCallback((file: File): string | null => {
@@ -299,6 +330,15 @@ export default function App() {
     });
   }, []);
 
+  const readAllCached = useCallback((db: IDBDatabase): Promise<CachedTrack[]> => {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(DB_CONFIG.store, 'readonly');
+      const req = tx.objectStore(DB_CONFIG.store).getAll();
+      req.onsuccess = () => resolve((req.result || []) as CachedTrack[]);
+      req.onerror = () => reject(req.error);
+    });
+  }, []);
+
   const persistTrackToDB = useCallback(async (trackId: string, file: File) => {
     try {
       // Read the file BEFORE opening the transaction: IndexedDB auto-commits
@@ -307,22 +347,50 @@ export default function App() {
       // transaction inactive and put() throws TransactionInactiveError.
       const arrayBuffer = await file.arrayBuffer();
       const db = await openDB();
-      const tx = db.transaction(DB_CONFIG.store, 'readwrite');
-      tx.objectStore(DB_CONFIG.store).put({
+
+      // Evict oldest-first so a big import cannot blow the origin quota.
+      const all = await readAllCached(db);
+      let total = all.reduce((n, t) => n + (t.bytes || t.data?.byteLength || 0), 0);
+      const incoming = arrayBuffer.byteLength;
+      const doomed = [...all]
+        .sort((a, b) => (a.savedAt || 0) - (b.savedAt || 0))
+        .filter(t => t.id !== trackId);
+      const pruneTx = db.transaction(DB_CONFIG.store, 'readwrite');
+      const pruneStore = pruneTx.objectStore(DB_CONFIG.store);
+      let dropped = 0;
+      for (const old of doomed) {
+        const size = old.bytes || old.data?.byteLength || 0;
+        const overBytes = total + incoming > MAX_CACHED_BYTES;
+        const overCount = all.length - dropped + 1 > MAX_CACHED_TRACKS;
+        if (!overBytes && !overCount) break;
+        pruneStore.delete(old.id);
+        total -= size;
+        dropped++;
+      }
+      pruneStore.put({
         id: trackId,
         name: file.name,
         type: file.type,
         data: arrayBuffer,
-      });
+        savedAt: Date.now(),
+        bytes: incoming,
+      } as CachedTrack);
       await new Promise<void>((resolve, reject) => {
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-        tx.onabort = () => reject(tx.error);
+        pruneTx.oncomplete = () => resolve();
+        pruneTx.onerror = () => reject(pruneTx.error);
+        pruneTx.onabort = () => reject(pruneTx.error);
       });
     } catch (err) {
-      console.warn('Failed to persist track', err);
+      // Caching is a convenience. Never fail the import because of it, but do
+      // not pretend it worked either.
+      console.warn('Track cache write failed', err);
+      setCacheNotice(
+        err instanceof Error && /quota/i.test(err.name + err.message)
+          ? 'Browser storage is full, so this track will not survive a reload.'
+          : 'This track could not be cached for the next reload.'
+      );
     }
-  }, [openDB]);
+  }, [openDB, readAllCached]);
 
   const clearTrackCache = useCallback(async () => {
     try {
@@ -339,6 +407,13 @@ export default function App() {
       const db = await openDB();
       const tx = db.transaction(DB_CONFIG.store, 'readwrite');
       tx.objectStore(DB_CONFIG.store).delete(trackId);
+      // Await completion: an un-awaited delete can commit before an in-flight
+      // put from the same import, leaving an orphaned cached track forever.
+      await new Promise<void>((resolve, reject) => {
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
+      });
     } catch (err) {
       console.warn('Failed to remove cached track', err);
     }
@@ -358,17 +433,24 @@ export default function App() {
 
       if (!cachedTracks.length) return;
 
+      // Restore the most recent tracks only. Cold-starting a session that
+      // decodes a dozen 200MB files is how you get a multi-second freeze.
+      const usable = cachedTracks
+        .sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0))
+        .slice(0, MAX_CACHED_TRACKS);
+
       const restored: AudioFile[] = [];
-      for (const cached of cachedTracks) {
+      for (const cached of usable) {
         const blob = new Blob([cached.data], { type: cached.type });
         const restoredFile = new File([blob], cached.name, { type: cached.type });
         const arrayBuffer: ArrayBuffer = cached.data instanceof ArrayBuffer ? cached.data : await cached.data.arrayBuffer();
         const buffer = await audioContextRef.current.decodeAudioData(arrayBuffer.slice(0));
-        const cachePeak = bufferPeak(buffer);
-        console.log(
-          `[SlowedLab][decode:cache] name="${cached.name}" duration=${buffer.duration.toFixed(2)}s ` +
-          `channels=${buffer.numberOfChannels} peak=${cachePeak < 0 ? 'n/a' : cachePeak.toFixed(4)}`
-        );
+        if (DEBUG_AUDIO) {
+          console.log(
+            `[SlowedLab][decode:cache] name="${cached.name}" duration=${buffer.duration.toFixed(2)}s ` +
+            `channels=${buffer.numberOfChannels} peak=${bufferPeak(buffer).toFixed(4)}`
+          );
+        }
         restored.push({
           id: cached.id,
           file: restoredFile,
@@ -395,7 +477,9 @@ export default function App() {
     pauseTimeRef.current = 0;
     pauseTimelineRef.current = 0;
     startTimeRef.current = audioContextRef.current?.currentTime || 0;
-    setBufferPosition(0);
+    currentTimeRef.current = 0;
+    bufferPositionRef.current = 0;
+    lastUiSyncRef.current = 0;
     setAudio(prev => ({ ...prev, currentTrackIndex: 0, currentTime: 0 }));
     setTimeout(() => {
       playAudioRef.current?.();
@@ -444,10 +528,10 @@ export default function App() {
 
   // Restore cached session (presets, loop, history, tracks)
   useEffect(() => {
-    const cachedEffects = localStorage.getItem(STORAGE_KEYS.effects);
-    const cachedPreset = localStorage.getItem(STORAGE_KEYS.preset);
-    const cachedUserPresets = localStorage.getItem(STORAGE_KEYS.userPresets);
-    const cachedHistory = localStorage.getItem(STORAGE_KEYS.playHistory);
+    const cachedEffects = readStored(STORAGE_KEYS.effects);
+    const cachedPreset = readStored(STORAGE_KEYS.preset);
+    const cachedUserPresets = readStored(STORAGE_KEYS.userPresets);
+    const cachedHistory = readStored(STORAGE_KEYS.playHistory);
 
     if (cachedEffects) {
       try {
@@ -479,13 +563,30 @@ export default function App() {
     restoreTracksFromDB().finally(() => setIsRestoring(false));
   }, [restoreTracksFromDB]);
 
+  // localStorage throws in Safari private mode and when storage is disabled.
+  // Reads must degrade to defaults instead of aborting session restore.
+  const readStored = (key: string): string | null => {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  };
+  const writeStored = (key: string, value: string) => {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      setCacheNotice('Browser storage is unavailable, so this session will not be remembered.');
+    }
+  };
+
   // Persist session changes
   useEffect(() => {
     if (isRestoring) return;
-    localStorage.setItem(STORAGE_KEYS.effects, JSON.stringify(effects));
-    localStorage.setItem(STORAGE_KEYS.preset, selectedPreset);
-    localStorage.setItem(STORAGE_KEYS.userPresets, JSON.stringify(userPresets));
-    localStorage.setItem(STORAGE_KEYS.playHistory, JSON.stringify(playHistory.slice(0, 50)));
+    writeStored(STORAGE_KEYS.effects, JSON.stringify(effects));
+    writeStored(STORAGE_KEYS.preset, selectedPreset);
+    writeStored(STORAGE_KEYS.userPresets, JSON.stringify(userPresets));
+    writeStored(STORAGE_KEYS.playHistory, JSON.stringify(playHistory.slice(0, 50)));
   }, [effects, selectedPreset, userPresets, playHistory, isRestoring]);
 
   // Old canvas waveform removed; new component handles rendering and interactions
@@ -550,11 +651,12 @@ export default function App() {
         const buffer = await audioContextRef.current!.decodeAudioData(arrayBuffer);
         setLoadingProgress({ fileName: audioFiles[i].name, progress: 100 });
 
-        const importPeak = bufferPeak(buffer);
-        console.log(
-          `[SlowedLab][decode] name="${audioFiles[i].name}" duration=${buffer.duration.toFixed(2)}s ` +
-          `sampleRate=${buffer.sampleRate} channels=${buffer.numberOfChannels} peak=${importPeak < 0 ? 'n/a' : importPeak.toFixed(4)}`
-        );
+        if (DEBUG_AUDIO) {
+          console.log(
+            `[SlowedLab][decode] name="${audioFiles[i].name}" duration=${buffer.duration.toFixed(2)}s ` +
+            `sampleRate=${buffer.sampleRate} channels=${buffer.numberOfChannels} peak=${bufferPeak(buffer).toFixed(4)}`
+          );
+        }
 
         // Waveform handled by component
 
@@ -603,22 +705,57 @@ export default function App() {
     await addAudioFiles([file], 'Could not use that audio.');
   };
 
-  // Handle drag and drop
-  const handleDragOver = (e: React.DragEvent) => {
+  // Handle drag and drop. dragleave also fires when the pointer crosses a
+  // child element's boundary, so a naive setState(false) makes the overlay
+  // strobe on every internal move. Counting enter/leave pairs fixes it.
+  const dragDepthRef = useRef(0);
+
+  const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
+    dragDepthRef.current += 1;
+    if (!hasFiles(e.dataTransfer)) {
+      setDropNotice('That does not look like audio. Drop an MP3, WAV, FLAC, OGG or AAC file.');
+    } else {
+      setDropNotice(null);
+    }
     setIsDragging(true);
   };
 
-  const handleDragLeave = () => {
-    setIsDragging(false);
+  const handleDragOver = (e: React.DragEvent) => {
+    // Required, or the browser refuses the drop entirely.
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = hasFiles(e.dataTransfer) ? 'copy' : 'none';
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) {
+      setIsDragging(false);
+      setDropNotice(null);
+    }
   };
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
+    dragDepthRef.current = 0;
     setIsDragging(false);
+    setDropNotice(null);
 
-    const files = Array.from(e.dataTransfer.files);
-    await addAudioFiles(files, 'Please drop audio files (MP3, WAV, FLAC, OGG, etc.)');
+    const files = Array.from(e.dataTransfer.files || []);
+    const audioFiles = files.filter(file => !validateAudioFile(file));
+    const rejected = files.length - audioFiles.length;
+
+    if (audioFiles.length) {
+      await addAudioFiles(audioFiles, 'Please drop audio files (MP3, WAV, FLAC, OGG, etc.)');
+    }
+    if (rejected > 0) {
+      setCacheNotice(
+        `${rejected} of ${files.length} dropped file${files.length > 1 ? 's were' : ' was'} skipped — not supported audio.`
+      );
+    } else if (!files.length) {
+      setCacheNotice('Nothing was dropped. Try dragging an audio file onto the window.');
+    }
   };
 
   // Update current time animation using freshest state refs to avoid stale closures
@@ -632,12 +769,20 @@ export default function App() {
 
     // playback timeline (seconds regardless of rate)
     const timelineNow = pauseTimelineRef.current + elapsedCtx;
-    setAudio(prev => ({ ...prev, currentTime: timelineNow }));
 
     // buffer position in seconds (accounts for playback rate)
     const rate = playbackRateRef.current || 1;
     const bufPos = pauseTimeRef.current + elapsedCtx * rate;
-    setBufferPosition(Math.min(bufPos, track.duration));
+
+    currentTimeRef.current = timelineNow;
+    bufferPositionRef.current = Math.min(bufPos, track.duration);
+
+    // Text/aria readouts do not need 60Hz. 10Hz is smooth to read and cuts
+    // App re-renders (Topbar + Sidebar + tabs + drawers) by ~6x.
+    if (ctxNow - lastUiSyncRef.current >= 0.1) {
+      lastUiSyncRef.current = ctxNow;
+      setAudio(prev => (Math.abs(prev.currentTime - timelineNow) < 0.05 ? prev : { ...prev, currentTime: timelineNow }));
+    }
 
     if (bufPos >= track.duration - 1e-3) {
       // Stop current source to prevent concurrent playback
@@ -658,7 +803,7 @@ export default function App() {
         // Auto-play next track in playlist
         pauseTimeRef.current = 0;
         pauseTimelineRef.current = 0;
-        setBufferPosition(0);
+        bufferPositionRef.current = 0;
         setAudio(prev => ({ ...prev, currentTrackIndex: nextIndex, currentTime: 0, isPlaying: false }));
         // Stop current source correctly before auto-play
         if (sourceNodeRef.current) {
@@ -720,11 +865,11 @@ export default function App() {
       }
     }
     if (audioContextRef.current.state !== 'running') {
-      const ctx = audioContextRef.current;
+      const blocked = audioContextRef.current;
       console.warn(
         'Audio output blocked by the browser:',
-        `state=${ctx.state} sampleRate=${ctx.sampleRate} ` +
-        `baseLatency=${ctx.baseLatency ?? 'n/a'} outputLatency=${ctx.outputLatency ?? 'n/a'} ` +
+        `state=${blocked.state} sampleRate=${blocked.sampleRate} ` +
+        `baseLatency=${blocked.baseLatency ?? 'n/a'} outputLatency=${blocked.outputLatency ?? 'n/a'} ` +
         `ua=${navigator.userAgent.slice(0, 80)}`
       );
       playingRef.current = false;
@@ -733,99 +878,27 @@ export default function App() {
     }
     setAudioBlocked(false);
 
-    // Create audio nodes
-    const source = audioContextRef.current.createBufferSource();
-    const gainNode = audioContextRef.current.createGain();
-    const convolver = audioContextRef.current.createConvolver();
-    const bassEQ = audioContextRef.current.createBiquadFilter();
-    const trebleEQ = audioContextRef.current.createBiquadFilter();
-    const compressor = audioContextRef.current.createDynamicsCompressor();
-    const distortion = audioContextRef.current.createWaveShaper();
-
+    // One shared DSP definition for playback and export (see audioGraph.ts).
+    const ctx = audioContextRef.current;
+    const source = ctx.createBufferSource();
     source.buffer = track.buffer;
     source.playbackRate.value = effects.playbackRate;
-    gainNode.gain.value = volume;
 
+    const chain = buildChain(
+      ctx,
+      source,
+      ctx.destination,
+      effects,
+      muted ? 0 : volume,
+      convolverNodeRef.current!.buffer
+    );
 
-    // Configure reverb
-    convolver.buffer = convolverNodeRef.current!.buffer;
-    const reverbGain = audioContextRef.current.createGain();
-    const dryGain = audioContextRef.current.createGain();
-    const reverbMix = effects.reverbAmount / 100 * Math.PI / 2;
-    reverbGain.gain.value = Math.sin(reverbMix);
-    dryGain.gain.value = Math.cos(reverbMix);
-
-    // Configure EQ
-    bassEQ.type = 'lowshelf';
-    bassEQ.frequency.value = 200;
-    bassEQ.gain.value = effects.bassBoost / 2;
-
-    trebleEQ.type = 'highshelf';
-    trebleEQ.frequency.value = 3000;
-    trebleEQ.gain.value = effects.trebleBoost / 2;
-
-    // Configure compressor (0% = bypass)
-    const compressionAmount = effects.compression / 100;
-    const compressionRatio = 1 + compressionAmount * 19; // 1x..20x
-    const compressionThreshold = 0 - compressionAmount * 40; // 0..-40 dB
-    compressor.threshold.value = compressionThreshold;
-    compressor.knee.value = compressionAmount * 30;
-    compressor.ratio.value = compressionRatio;
-    compressor.attack.value = 0.005 + compressionAmount * 0.045;
-    compressor.release.value = 0.05 + compressionAmount * 0.35;
-
-    // Configure distortion (0% = passthrough)
-    const makeDistortionCurve = (amount: number) => {
-      const samples = 44100;
-      const curve = new Float32Array(samples);
-      if (amount <= 0.0001) {
-        for (let i = 0; i < samples; i++) {
-          const x = (i * 2) / samples - 1;
-          curve[i] = x;
-        }
-        return curve;
-      }
-      const deg = Math.PI / 180;
-      const k = amount * 50;
-
-      for (let i = 0; i < samples; i++) {
-        const x = (i * 2) / samples - 1;
-        curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
-      }
-      return curve;
-    };
-    distortion.curve = makeDistortionCurve(effects.distortion / 100);
-    distortion.oversample = '4x';
-
-    // Connect nodes: source -> distortion -> EQ -> compressor -> gain -> [dry + wet] -> destination
-    source.connect(distortion);
-    distortion.connect(bassEQ);
-    bassEQ.connect(trebleEQ);
-    trebleEQ.connect(compressor);
-    compressor.connect(gainNode);
-
-    // Dry signal
-    gainNode.connect(dryGain);
-    dryGain.connect(audioContextRef.current.destination);
-
-    // Wet signal (with reverb)
-    gainNode.connect(convolver);
-    convolver.connect(reverbGain);
-    reverbGain.connect(audioContextRef.current.destination);
-
-    // Store references
+    chainNodesRef.current = chain.nodes;
     sourceNodeRef.current = source;
-    gainNodeRef.current = gainNode;
-    dryGainRef.current = dryGain;
-    wetGainRef.current = reverbGain;
-    bassEQRef.current = bassEQ;
-    trebleEQRef.current = trebleEQ;
-    compressorRef.current = compressor;
-    distortionRef.current = distortion;
 
     // Start playback. Clamp the offset into the buffer: Chrome/Brave throw
     // InvalidStateError for out-of-range offsets where Firefox is lenient.
-    startTimeRef.current = audioContextRef.current.currentTime;
+    startTimeRef.current = ctx.currentTime;
     lastPlaybackRateRef.current = effects.playbackRate;
     playbackRateRef.current = effects.playbackRate;
     const safeOffset = Math.min(
@@ -835,14 +908,15 @@ export default function App() {
     pauseTimeRef.current = safeOffset;
     source.start(0, safeOffset);
 
-    // One-line graph snapshot: every knob that can zero the output.
-    {
-      const ctx = audioContextRef.current!;
+    // One-line graph snapshot: every knob that can zero the output. Debug-only;
+    // this used to log on every single play.
+    if (DEBUG_AUDIO) {
+      const n = chain.nodes;
       console.log(
         `[SlowedLab][play] state=${ctx.state} ctxRate=${ctx.sampleRate} ctxTime=${ctx.currentTime.toFixed(2)} ` +
         `offset=${safeOffset.toFixed(2)} bufDur=${track.buffer.duration.toFixed(2)} bufCh=${track.buffer.numberOfChannels} ` +
-        `rate=${effects.playbackRate} vol=${volume} dry=${dryGain.gain.value.toFixed(3)} wet=${reverbGain.gain.value.toFixed(3)} ` +
-        `bass=${bassEQ.gain.value} treb=${trebleEQ.gain.value} compRatio=${compressor.ratio.value.toFixed(1)} ` +
+        `rate=${effects.playbackRate} vol=${volume} dry=${n.dry.gain.value.toFixed(3)} wet=${n.wet.gain.value.toFixed(3)} ` +
+        `bass=${n.bass.gain.value} treb=${n.treble.gain.value} compRatio=${n.compressor.ratio.value.toFixed(1)} ` +
         `dist=${(effects.distortion / 100).toFixed(3)}`
       );
     }
@@ -893,14 +967,14 @@ export default function App() {
       if (nextTrack?.buffer) {
         pauseTimeRef.current = 0;
         pauseTimelineRef.current = 0;
-        setBufferPosition(0);
+        bufferPositionRef.current = 0;
         setAudio(prev => ({ ...prev, currentTrackIndex: nextIndex, currentTime: 0, isPlaying: false }));
         setTimeout(() => playAudioRef.current?.(), 80);
       } else {
         setAudio(prev => ({ ...prev, isPlaying: false, currentTime: 0 }));
         pauseTimeRef.current = 0;
         pauseTimelineRef.current = 0;
-        setBufferPosition(0);
+        bufferPositionRef.current = 0;
       }
     };
 
@@ -908,90 +982,32 @@ export default function App() {
     playingRef.current = true;
     animationFrameRef.current = requestAnimationFrame(updateTime);
     logPlayHistory(track);
-  }, [volume, effects, updateTime, logPlayHistory]);
+  }, [volume, muted, effects, updateTime, logPlayHistory, clearAudioProbe]);
 
   playAudioRef.current = playAudio;
 
-  // Update effects in real-time during playback
+  // Update effects in real-time during playback. Rate changes need a time-base
+  // rebase to stay in sync; everything else is a parameter write on the live
+  // nodes (no rebuild, so no click and no dropped samples).
   useEffect(() => {
-    if (!audio.isPlaying) return;
+    if (audio.isPlaying && chainNodesRef.current) {
+      updateChain(chainNodesRef.current, effects, muted ? 0 : volume);
+    }
 
-    // Update playback rate with time-base rebasing to keep sync
     if (sourceNodeRef.current && audioContextRef.current) {
       const newRate = effects.playbackRate;
       if (newRate !== lastPlaybackRateRef.current) {
         const ctxNow = audioContextRef.current.currentTime;
         const elapsedCtx = ctxNow - startTimeRef.current;
-        const currentBufPos = pauseTimeRef.current + elapsedCtx * (lastPlaybackRateRef.current || 1);
-        pauseTimeRef.current = currentBufPos;
+        pauseTimeRef.current =
+          pauseTimeRef.current + elapsedCtx * (lastPlaybackRateRef.current || 1);
         startTimeRef.current = ctxNow;
         lastPlaybackRateRef.current = newRate;
         playbackRateRef.current = newRate;
       }
       sourceNodeRef.current.playbackRate.value = newRate;
     }
-
-    // Update bass EQ
-    if (bassEQRef.current) {
-      bassEQRef.current.gain.value = effects.bassBoost / 2;
-    }
-
-    // Update treble EQ
-    if (trebleEQRef.current) {
-      trebleEQRef.current.gain.value = effects.trebleBoost / 2;
-    }
-
-    // Update compressor
-    if (compressorRef.current) {
-      const compressionAmount = effects.compression / 100;
-      const compressionRatio = 1 + compressionAmount * 19;
-      const compressionThreshold = 0 - compressionAmount * 40;
-      compressorRef.current.threshold.value = compressionThreshold;
-      compressorRef.current.knee.value = compressionAmount * 30;
-      compressorRef.current.ratio.value = compressionRatio;
-      compressorRef.current.attack.value = 0.005 + compressionAmount * 0.045;
-      compressorRef.current.release.value = 0.05 + compressionAmount * 0.35;
-    }
-
-    // Update distortion
-    if (distortionRef.current) {
-      const makeDistortionCurve = (amount: number) => {
-        const samples = 44100;
-        const curve = new Float32Array(samples);
-        if (amount <= 0.0001) {
-          for (let i = 0; i < samples; i++) {
-            const x = (i * 2) / samples - 1;
-            curve[i] = x;
-          }
-          return curve;
-        }
-        const deg = Math.PI / 180;
-        const k = amount * 50;
-
-        for (let i = 0; i < samples; i++) {
-          const x = (i * 2) / samples - 1;
-          curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
-        }
-        return curve;
-      };
-      distortionRef.current.curve = makeDistortionCurve(effects.distortion / 100);
-    }
-
-    // Update reverb dry/wet mix
-    if (dryGainRef.current && wetGainRef.current) {
-      const mix = effects.reverbAmount / 100 * Math.PI / 2;
-      const dryAmount = Math.cos(mix);
-      const wetAmount = Math.sin(mix);
-      dryGainRef.current.gain.value = dryAmount;
-      wetGainRef.current.gain.value = wetAmount;
-    }
-
-    // Update volume
-    if (gainNodeRef.current) {
-      gainNodeRef.current.gain.value = volume;
-    }
-  }, [effects, volume, audio.isPlaying]);
-
+  }, [effects, volume, muted, audio.isPlaying]);
 
   // Pause audio
   const pauseAudio = useCallback(() => {
@@ -1013,15 +1029,17 @@ export default function App() {
       const rate = playbackRateRef.current || effects.playbackRate || 1;
       const bufPos = pauseTimeRef.current + elapsedCtx * rate;
       pauseTimeRef.current = bufPos;
-      setBufferPosition(bufPos);
+      bufferPositionRef.current = bufPos;
       const timelineNow = pauseTimelineRef.current + elapsedCtx;
       pauseTimelineRef.current = timelineNow;
+      currentTimeRef.current = timelineNow;
     } else {
       pauseTimelineRef.current = audio.currentTime;
+      currentTimeRef.current = audio.currentTime;
     }
     playingRef.current = false;
     setAudio(prev => ({ ...prev, isPlaying: false }));
-  }, [audio.currentTime, effects.playbackRate]);
+  }, [audio.currentTime, effects.playbackRate, clearAudioProbe]);
 
   // Stop audio
   const stopAudio = useCallback(() => {
@@ -1038,10 +1056,11 @@ export default function App() {
 
     pauseTimeRef.current = 0;
     pauseTimelineRef.current = 0;
-    setBufferPosition(0);
+    bufferPositionRef.current = 0;
+    currentTimeRef.current = 0;
     playingRef.current = false;
     setAudio(prev => ({ ...prev, isPlaying: false, currentTime: 0 }));
-  }, []);
+  }, [clearAudioProbe]);
 
   stopAudioRef.current = stopAudio;
 
@@ -1054,11 +1073,8 @@ export default function App() {
     setBugSubmitting(true);
     setBugMessage(null);
     try {
-      // CRA injects REACT_APP_API_URL at build time
-      const apiBase = process.env.REACT_APP_API_URL || '';
-      const base = apiBase.replace(/\/$/, '');
-      const url = base ? `${base}/api/report-bug` : '/api/report-bug';
-      const res = await fetch(url, {
+      // Same-origin: the dev server and nginx both proxy /api to the backend.
+      const res = await fetch('/api/report-bug', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1096,44 +1112,22 @@ export default function App() {
     }
   }, [audio.isPlaying, pauseAudio, playAudio]);
 
-  // Update volume
-  useEffect(() => {
-    if (gainNodeRef.current) {
-      gainNodeRef.current.gain.value = volume;
-    }
-  }, [volume]);
-
-  // Update playback rate in real-time
-  useEffect(() => {
-    if (sourceNodeRef.current) {
-      sourceNodeRef.current.playbackRate.value = effects.playbackRate;
-    }
-  }, [effects.playbackRate]);
-
-  // Apply preset
+  // Apply preset. The live chain is updated in place by the effects effect, so
+  // there is no pause/restart here: switching sounds mid-playback used to drop
+  // ~100ms of audio for no reason.
   const applyPreset = (presetName: string) => {
     const preset = [...PRESETS, ...userPresets].find(p => p.name === presetName);
     if (preset) {
       setEffects(preset.settings);
       setSelectedPreset(presetName);
       setAbBaseline(preset.settings);
-
-      // If playing, restart with new effects
-      if (audio.isPlaying) {
-        pauseAudio();
-        setTimeout(() => playAudio(), 100);
-      }
     }
   };
 
   const resetPresets = () => {
     setEffects({ ...DEFAULT_EFFECTS });
     setSelectedPreset('Custom');
-    setAbBaseline(DEFAULT_EFFECTS);
-    if (audio.isPlaying) {
-      pauseAudio();
-      setTimeout(() => playAudio(), 100);
-    }
+    setAbBaseline({ ...DEFAULT_EFFECTS });
   };
 
   const saveUserPreset = () => {
@@ -1198,7 +1192,8 @@ export default function App() {
     pauseTimeRef.current = 0;
     pauseTimelineRef.current = 0;
     startTimeRef.current = audioContextRef.current?.currentTime || 0;
-    setBufferPosition(0);
+    bufferPositionRef.current = 0;
+    currentTimeRef.current = 0;
 
     setAudio(prev => ({ ...prev, currentTrackIndex: index, currentTime: 0 }));
 
@@ -1226,7 +1221,8 @@ export default function App() {
       stopAudio();
       pauseTimeRef.current = 0;
       pauseTimelineRef.current = 0;
-      setBufferPosition(0);
+      bufferPositionRef.current = 0;
+      currentTimeRef.current = 0;
     }
     deleteTrackFromDB(id);
     setAudio(prev => {
@@ -1254,8 +1250,7 @@ export default function App() {
     });
   };
 
-  const clearPlaylist = (confirmClear = true) => {
-    if (confirmClear && audio.playlist.length && !window.confirm('Clear every track from this browser session?')) return;
+  const clearPlaylist = () => {
     if (audio.isPlaying) {
       stopAudio();
     }
@@ -1270,16 +1265,16 @@ export default function App() {
   };
 
   const resetSession = () => {
-    if ((audio.playlist.length || userPresets.length) && !window.confirm('Reset this session? This removes all tracks and saved presets from this browser.')) return;
-    clearPlaylist(false);
+    clearPlaylist();
     setEffects({ ...DEFAULT_EFFECTS });
     setSelectedPreset('Custom');
     setUserPresets([]);
     setPlayHistory([]);
-    localStorage.removeItem(STORAGE_KEYS.effects);
-    localStorage.removeItem(STORAGE_KEYS.preset);
-    localStorage.removeItem(STORAGE_KEYS.userPresets);
-    localStorage.removeItem(STORAGE_KEYS.playHistory);
+    try {
+      Object.values(STORAGE_KEYS).forEach(key => localStorage.removeItem(key));
+    } catch {
+      // storage unavailable; nothing to clear
+    }
   };
 
 
@@ -1294,13 +1289,17 @@ export default function App() {
       // Convert timeline seconds to buffer seconds for start offset
       pauseTimeRef.current = clamped * (effects.playbackRate || 1);
       pauseTimelineRef.current = clamped;
+      currentTimeRef.current = clamped;
+      bufferPositionRef.current = pauseTimeRef.current;
       setAudio(prev => ({ ...prev, currentTime: clamped }));
       setTimeout(() => playAudio(), 50);
     } else {
       pauseTimeRef.current = clamped * (effects.playbackRate || 1);
       pauseTimelineRef.current = clamped;
+      currentTimeRef.current = clamped;
+      bufferPositionRef.current = pauseTimeRef.current;
       setAudio(prev => ({ ...prev, currentTime: clamped }));
-      setBufferPosition(Math.min(pauseTimeRef.current, currentTrack.duration));
+      bufferPositionRef.current = Math.min(pauseTimeRef.current, currentTrack.duration);
     }
   }, [audio.isPlaying, currentTrack, pauseAudio, playAudio, effects.playbackRate]);
 
@@ -1313,6 +1312,8 @@ export default function App() {
   // UI States for Glass & Void Design
   const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Settings/Effects
   const [isPlaylistOpen, setIsPlaylistOpen] = useState(false); // Playlist
+  const closeQueue = useCallback(() => setIsPlaylistOpen(false), []);
+  const queuePanelRef = useDialogFocus<HTMLElement>(isPlaylistOpen, closeQueue);
 
   useKeyboardShortcuts({
     onPlayPause: () => {
@@ -1419,55 +1420,28 @@ export default function App() {
     try {
       const input = currentTrack.buffer;
       const sampleRate = input.sampleRate;
-      const renderedDuration = input.duration / effects.playbackRate + 2;
-      const offline = new OfflineAudioContext(input.numberOfChannels, Math.ceil(renderedDuration * sampleRate), sampleRate);
-      const source = offline.createBufferSource();
-      const distortion = offline.createWaveShaper();
-      const bass = offline.createBiquadFilter();
-      const treble = offline.createBiquadFilter();
-      const compressor = offline.createDynamicsCompressor();
-      const gain = offline.createGain();
-      const dry = offline.createGain();
-      const convolver = offline.createConvolver();
-      const wet = offline.createGain();
+      // Monitoring volume is deliberately NOT applied: the file should match
+      // the mix, not your speaker level.
+      const tail = effects.reverbAmount > 0 ? 2 : 0.1;
+      const renderedDuration = input.duration / effects.playbackRate + tail;
+      const offline = new OfflineAudioContext(
+        input.numberOfChannels,
+        Math.ceil(renderedDuration * sampleRate),
+        sampleRate
+      );
 
+      const source = offline.createBufferSource();
       source.buffer = input;
       source.playbackRate.value = effects.playbackRate;
-      gain.gain.value = volume;
-      bass.type = 'lowshelf';
-      bass.frequency.value = 200;
-      bass.gain.value = effects.bassBoost / 2;
-      treble.type = 'highshelf';
-      treble.frequency.value = 3000;
-      treble.gain.value = effects.trebleBoost / 2;
-      const compression = effects.compression / 100;
-      compressor.threshold.value = -compression * 40;
-      compressor.knee.value = compression * 30;
-      compressor.ratio.value = 1 + compression * 19;
-      compressor.attack.value = 0.005 + compression * 0.045;
-      compressor.release.value = 0.05 + compression * 0.35;
 
-      const curve = new Float32Array(44100);
-      const amount = effects.distortion / 100;
-      const k = amount * 50;
-      for (let i = 0; i < curve.length; i++) {
-        const x = (i * 2) / curve.length - 1;
-        curve[i] = amount <= 0.0001 ? x : ((3 + k) * x * 20 * Math.PI / 180) / (Math.PI + k * Math.abs(x));
-      }
-      distortion.curve = curve;
-      distortion.oversample = '4x';
-      convolver.buffer = convolverNodeRef.current?.buffer || null;
-      const mix = effects.reverbAmount / 100 * Math.PI / 2;
-      dry.gain.value = Math.cos(mix);
-      wet.gain.value = Math.sin(mix);
-
-      source.connect(distortion);
-      distortion.connect(bass);
-      bass.connect(treble);
-      treble.connect(compressor);
-      compressor.connect(gain);
-      gain.connect(dry).connect(offline.destination);
-      gain.connect(convolver).connect(wet).connect(offline.destination);
+      buildChain(
+        offline,
+        source,
+        offline.destination,
+        effects,
+        1,
+        convolverNodeRef.current?.buffer || null
+      );
       source.start();
 
       const rendered = await offline.startRendering();
@@ -1513,6 +1487,7 @@ export default function App() {
       <main
         id="main-content"
         className={`studio ${isDragging ? 'dragging' : ''}`}
+        onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
@@ -1537,7 +1512,7 @@ export default function App() {
                 buffer={currentTrack.buffer}
                 currentTime={audio.currentTime}
                 playbackRate={effects.playbackRate}
-                bufferPosition={bufferPosition}
+                getPosition={getPosition}
                 onSeek={seekTo}
                 height={220}
               />
@@ -1563,13 +1538,26 @@ export default function App() {
               <p>Choose where your audio comes from. Shape it here, then export a finished WAV.</p>
 
               <div className="source-picker">
-                <div className="source-tabs" role="tablist" aria-label="Audio source">
+                <div
+                  className="source-tabs"
+                  role="tablist"
+                  aria-label="Audio source"
+                  onKeyDown={(e) => {
+                    // Arrow keys move between tabs, as the tablist role implies.
+                    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+                    e.preventDefault();
+                    setImportSource(importSource === 'device' ? 'cloud' : 'device');
+                    const next = e.key === 'ArrowRight' ? 'cloud-source-tab' : 'device-source-tab';
+                    requestAnimationFrame(() => document.getElementById(next)?.focus());
+                  }}
+                >
                   <button
                     id="device-source-tab"
                     className={importSource === 'device' ? 'active' : ''}
                     role="tab"
                     aria-selected={importSource === 'device'}
                     aria-controls="device-source-panel"
+                    tabIndex={importSource === 'device' ? 0 : -1}
                     onClick={() => setImportSource('device')}
                   >
                     <FiFolder aria-hidden="true" />
@@ -1581,6 +1569,7 @@ export default function App() {
                     role="tab"
                     aria-selected={importSource === 'cloud'}
                     aria-controls="cloud-source-panel"
+                    tabIndex={importSource === 'cloud' ? 0 : -1}
                     onClick={() => setImportSource('cloud')}
                   >
                     <FiLink aria-hidden="true" />
@@ -1607,7 +1596,13 @@ export default function App() {
             </div>
           </section>
         )}
-        {isDragging && <div className="drop-overlay"><FiUploadCloud /><strong>Drop to add audio</strong><span>We’ll add it to your queue</span></div>}
+        {isDragging && (
+          <div className="drop-overlay" aria-hidden="true">
+            <FiUploadCloud />
+            <strong>Drop to add audio</strong>
+            <span>{dropNotice || 'We’ll add it to your queue'}</span>
+          </div>
+        )}
       </main>
 
       <footer className="transport-dock" aria-label="Playback controls">
@@ -1631,14 +1626,31 @@ export default function App() {
           <span className="dock-time">{formatTime(audio.currentTime)}</span>
         </div>
         <div className="dock-tools">
-          <label className="volume-control">
-            <FiVolume2 aria-hidden="true" /><span className="sr-only">Volume</span>
-            <input type="range" min="0" max="1" step="0.01" value={volume} onChange={(e) => setVolume(Number(e.target.value))} aria-label="Volume" />
-          </label>
-          <button className={isSidebarOpen ? 'active' : ''} onClick={() => setIsSidebarOpen(true)} aria-label="Open sound controls" aria-expanded={isSidebarOpen}>
+          <div className="volume-control">
+            <button
+              className="volume-mute"
+              onClick={() => setMuted(m => !m)}
+              aria-label={muted ? 'Unmute' : 'Mute'}
+              aria-pressed={muted}
+            >
+              {muted || volume === 0 ? <FiVolumeX aria-hidden="true" /> : <FiVolume2 aria-hidden="true" />}
+            </button>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={muted ? 0 : volume}
+              onChange={(e) => { setMuted(false); setVolume(Number(e.target.value)); }}
+              aria-label="Volume"
+              aria-valuetext={`${Math.round((muted ? 0 : volume) * 100)} percent`}
+            />
+            <output className="volume-readout" aria-hidden="true">{Math.round((muted ? 0 : volume) * 100)}</output>
+          </div>
+          <button className={isSidebarOpen ? 'active' : ''} onClick={() => setIsSidebarOpen(true)} aria-label="Open sound controls" aria-expanded={isSidebarOpen} aria-controls="effects-title">
             <FiSettings /><span>Sound</span>
           </button>
-          <button className={isPlaylistOpen ? 'active' : ''} onClick={() => setIsPlaylistOpen(true)} aria-label="Open queue" aria-expanded={isPlaylistOpen}>
+          <button className={isPlaylistOpen ? 'active' : ''} onClick={() => setIsPlaylistOpen(true)} aria-label="Open queue" aria-expanded={isPlaylistOpen} aria-controls="queue-title">
             <FiList /><span>Queue</span>{audio.playlist.length > 0 && <b>{audio.playlist.length}</b>}
           </button>
         </div>
@@ -1665,18 +1677,27 @@ export default function App() {
       />
 
       {isPlaylistOpen && (
-        <aside className="studio-drawer queue-drawer" role="dialog" aria-modal="true" aria-labelledby="queue-title">
+        <aside ref={queuePanelRef} tabIndex={-1} className="studio-drawer queue-drawer" role="dialog" aria-modal="true" aria-labelledby="queue-title">
           <header className="drawer-heading">
             <div><p className="overline">Session</p><h2 id="queue-title">Track queue <span>{audio.playlist.length}</span></h2></div>
             <button className="icon-button" onClick={() => setIsPlaylistOpen(false)} aria-label="Close queue"><FiX /></button>
           </header>
           <div className="queue-actions">
             <label className="secondary-button"><FiUploadCloud /> Add tracks<input type="file" accept="audio/*" onChange={handleFileUpload} multiple /></label>
-            <button className="text-button danger" onClick={() => clearPlaylist()} disabled={!audio.playlist.length}><FiTrash2 /> Clear</button>
+            <button className="text-button danger" onClick={() => setPendingClear(true)} disabled={!audio.playlist.length}><FiTrash2 /> Clear</button>
           </div>
           <div className="queue-link">
             <LinkImport compact onFile={handleRemoteFile} />
           </div>
+          {pendingClear && (
+            <div className="queue-confirm" role="alertdialog" aria-label="Confirm clearing the queue">
+              <p>Remove all {audio.playlist.length} track{audio.playlist.length === 1 ? '' : 's'} from this session?</p>
+              <div>
+                <button className="text-button" onClick={() => setPendingClear(false)}>Cancel</button>
+                <button className="text-button danger" onClick={() => { setPendingClear(false); clearPlaylist(); }}>Clear all</button>
+              </div>
+            </div>
+          )}
           <div className="queue-list">
             {audio.playlist.map((track, index) => (
               <article className={`queue-item ${index === audio.currentTrackIndex ? 'active' : ''}`} key={track.id}>
@@ -1723,6 +1744,14 @@ export default function App() {
             <button onClick={() => { setAudioBlocked(false); togglePlayback(); }} aria-label="Try playing again">Retry</button>
             <button onClick={() => setAudioBlocked(false)} aria-label="Dismiss message"><FiX /></button>
           </span>
+        </div>
+      )}
+
+      {cacheNotice && (
+        <div className="status-toast" role="status">
+          <FiInfo aria-hidden="true" />
+          <span>{cacheNotice}</span>
+          <button onClick={() => setCacheNotice(null)} aria-label="Dismiss message"><FiX /></button>
         </div>
       )}
 

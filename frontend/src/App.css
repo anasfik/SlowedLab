@@ -413,8 +413,12 @@ button:disabled { cursor: not-allowed; opacity: 0.38; }
 .dock-tools > button { position: relative; display: flex; min-height: 44px; align-items: center; gap: 7px; padding: 0 12px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-soft); font-size: 11px; }
 .dock-tools > button:hover, .dock-tools > button.active { border-color: var(--line); background: var(--surface-strong); color: var(--text); }
 .dock-tools b { display: grid; min-width: 17px; height: 17px; place-items: center; border-radius: 99px; background: var(--accent); color: var(--accent-ink); font: 500 9px/1 var(--font-mono); }
-.volume-control { display: flex; min-height: 44px; align-items: center; gap: 8px; padding: 0 8px; color: var(--text-muted); }
-.volume-control input { width: 90px; }
+.volume-control { display: flex; min-height: 44px; align-items: center; gap: 6px; padding: 0 8px; color: var(--text-muted); }
+.volume-control input { width: 84px; }
+.volume-mute { display: grid; width: 32px; height: 32px; flex: 0 0 auto; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--text-muted); transition: background 200ms var(--ease), color 200ms var(--ease); }
+.volume-mute:hover { background: var(--surface-strong); color: var(--text); }
+.volume-mute[aria-pressed='true'] { background: rgba(255, 138, 120, 0.12); color: var(--danger); }
+.volume-readout { min-width: 22px; color: var(--text-muted); font: 10px/1 var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }
 
 input[type='range'] { height: 24px; margin: 0; appearance: none; background: transparent; }
 input[type='range']::-webkit-slider-runnable-track { height: 4px; border-radius: 99px; background: var(--surface-strong); }
@@ -684,3 +688,17 @@ input[type='range']::-moz-range-thumb { width: 9px; height: 9px; border: 4px sol
   .link-meta { grid-template-columns: 1fr; }
   .link-progress progress { width: 100%; }
 }
+
+/* ---- inline confirmations (replaced window.confirm / prompt) ---- */
+.saved-preset-rename { min-width: 0; flex: 1; padding: 6px 9px; border: 1px solid var(--accent); border-radius: 7px; outline: 0; background: var(--bg); color: var(--text); font-size: 11px; }
+.confirm-actions { display: flex; gap: 6px; }
+.danger-zone .confirm-actions button { min-height: 34px; padding: 0 11px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: transparent; color: var(--text-soft); font-size: 10px; }
+.danger-zone .confirm-actions button:hover { background: var(--surface-strong); color: var(--text); }
+.danger-zone .confirm-actions .confirm-accept { border-color: rgba(255, 138, 120, 0.35); color: var(--danger); }
+.danger-zone .confirm-actions .confirm-accept:hover { background: rgba(255, 138, 120, 0.12); color: var(--danger); }
+.queue-confirm { margin: 0 12px 12px; padding: 12px; border: 1px solid rgba(255, 138, 120, 0.28); border-radius: var(--radius-sm); background: rgba(255, 138, 120, 0.06); }
+.queue-confirm p { margin: 0 0 10px; color: var(--text-soft); font-size: 11px; line-height: 1.5; }
+.queue-confirm > div { display: flex; justify-content: flex-end; gap: 4px; }
+.queue-confirm .text-button { border: 1px solid var(--line); border-radius: 7px; padding: 0 10px; min-height: 32px; }
+.queue-confirm .text-button.danger { color: var(--danger); }
+.drop-overlay span { max-width: 30ch; text-align: center; }

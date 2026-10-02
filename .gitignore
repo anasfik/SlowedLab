@@ -74,3 +74,6 @@ dist/
 coverage/
 .nyc_output/
 app/
+# stray editor backups
+frontend/src/*.backup
+frontend/src/*.old

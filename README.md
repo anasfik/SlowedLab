@@ -2,10 +2,12 @@ SlowedLab — private browser audio studio ([slowedlab.app](https://slowedlab.ap
 
 <img width="1918" height="1001" alt="SlowedLab studio" src="https://github.com/user-attachments/assets/8f69cc72-2134-4e11-bfa0-c3625c520892" />
 
-An advanced real-time audio player supporting all effects (slow, reverb) that elevate your music/audio playing to next level
+An advanced real-time audio player supporting all effects (slow, reverb) that elevate your music/audio playing to next level.
+Paste a SoundCloud link to play it instantly, or upload your own files.
 
 ## Features
 
+- ☁️ SoundCloud link import — paste a link, play it directly in the studio
 - 🎚️ Playback speed from 0.50× to 1.50×
 - 🌊 Professional reverb engine
 - 🎵 Real-time audio effects (EQ, compression, distortion)

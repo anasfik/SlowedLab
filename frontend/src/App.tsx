@@ -1535,7 +1535,7 @@ export default function App() {
             <div className="empty-copy">
               <p className="overline">Private browser studio</p>
               <h1>Hear your track<br /><em>another way.</em></h1>
-              <p>Choose where your audio comes from. Shape it here, then export a finished WAV.</p>
+              <p>Upload your audio — or paste a SoundCloud link to play it here. Shape it, then export a finished WAV.</p>
 
               <div className="source-picker">
                 <div
@@ -1589,7 +1589,7 @@ export default function App() {
                 ) : (
                   <div className="source-panel cloud-source" id="cloud-source-panel" role="tabpanel" aria-labelledby="cloud-source-tab">
                     <LinkImport onFile={handleRemoteFile} />
-                    <p className="cloud-note">Public links only. Audio is fetched through our server.</p>
+                    <p className="cloud-note">Paste a public SoundCloud link — audio streams straight into your browser.</p>
                   </div>
                 )}
               </div>

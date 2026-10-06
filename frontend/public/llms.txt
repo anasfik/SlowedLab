@@ -11,7 +11,7 @@
 - Reverb plus EQ, compression and distortion
 - Waveform visualization with click-to-seek
 - Presets, including custom ones
-- Import by link (YouTube, SoundCloud) or local file upload
+- Paste a SoundCloud link to play it directly in the studio, or upload a local file
 - Export to WAV
 - Works with MP3, WAV, FLAC, OGG, AAC and more, up to 200 MB
 

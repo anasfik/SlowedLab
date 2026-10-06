@@ -41,6 +41,7 @@ export default function LinkImport({ onFile, compact }: LinkImportProps) {
   const [meta, setMeta] = useState<Meta | null>(null);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const pollRef = useRef<number | null>(null);
   const platform = meta?.platform || guessPlatform(url);
 
@@ -56,6 +57,7 @@ export default function LinkImport({ onFile, compact }: LinkImportProps) {
     setMeta(null);
     setProgress(0);
     setError(null);
+    setNotice(null);
     setUrl('');
   };
 
@@ -64,6 +66,7 @@ export default function LinkImport({ onFile, compact }: LinkImportProps) {
     if (!trimmed) return;
     setPhase('resolving');
     setError(null);
+    setNotice(null);
     setMeta(null);
     try {
       const res = await fetch('/api/audio/resolve', {
@@ -74,6 +77,9 @@ export default function LinkImport({ onFile, compact }: LinkImportProps) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Could not read that link.');
       setMeta(data.meta);
+      if (data.playlistStripped) {
+        setNotice('Mix/playlist parameters were stripped — importing the single video.');
+      }
       setPhase('ready');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not read that link.');
@@ -172,6 +178,7 @@ export default function LinkImport({ onFile, compact }: LinkImportProps) {
       </div>
 
       {error && <p className="link-error" role="alert">{error}</p>}
+      {notice && !error && <p className="link-note" role="status">{notice}</p>}
 
       {meta && (phase === 'ready' || phase === 'working') && (
         <div className="link-meta">

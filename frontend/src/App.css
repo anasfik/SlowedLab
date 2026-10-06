@@ -671,6 +671,7 @@ input[type='range']::-moz-range-thumb { width: 9px; height: 9px; border: 4px sol
 .link-row button:disabled { opacity: 0.45; }
 .link-cancel { display: grid; width: 42px; padding: 0; place-items: center; }
 .link-error { margin: 8px 2px 0; color: var(--danger); font-size: 11px; text-align: center; }
+.link-note { margin: 8px 2px 0; color: var(--text-muted); font-size: 11px; text-align: center; }
 .link-meta { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 12px; margin-top: 10px; padding: 12px 12px 12px 8px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); text-align: left; animation: toast-in 300ms var(--ease) both; }
 .link-meta-logo { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 10px; background: var(--bg); }
 .link-meta > div { display: grid; min-width: 0; gap: 3px; }

@@ -61,6 +61,11 @@ export function detectPlatform(rawUrl: string): Platform | "spotify" | null {
   return null;
 }
 
+export interface CanonicalLink {
+  url: string;
+  playlistStripped: boolean;
+}
+
 export interface ResolvedMeta {
   platform: Platform;
   id: string;
@@ -68,6 +73,55 @@ export interface ResolvedMeta {
   duration: number;
   uploader?: string;
   thumbnail?: string;
+}
+
+export function canonicalizeLink(rawUrl: string, platform: Platform): CanonicalLink {
+  const trimmed = rawUrl.trim();
+  try {
+    const parsed = new URL(trimmed);
+    if (platform === "youtube") {
+      const params = parsed.searchParams;
+      // Single video id from ?v=, youtu.be/<id>, /shorts/<id>, /embed/<id>, /live/<id>, /v/<id>
+      let videoId: string | null = null;
+      const v = params.get("v");
+      if (v && /^[A-Za-z0-9_-]{11}$/.test(v)) videoId = v;
+      if (!videoId) {
+        const host = parsed.hostname.toLowerCase();
+        const parts = parsed.pathname.split("/").filter(Boolean);
+        if ((host === "youtu.be" || host === "www.youtu.be") && parts[0]?.match(/^[A-Za-z0-9_-]{11}$/)) {
+          videoId = parts[0];
+        } else if (parts.length >= 2 && ["shorts", "embed", "live", "v"].includes(parts[0]) && /^[A-Za-z0-9_-]{11}$/.test(parts[1])) {
+          videoId = parts[1];
+        }
+      }
+      const hadPlaylistParams =
+        params.has("list") || params.has("start_radio") || params.has("pp") || params.has("index");
+      if (videoId) {
+        return {
+          url: `https://www.youtube.com/watch?v=${videoId}`,
+          playlistStripped: hadPlaylistParams,
+        };
+      }
+      // Playlist/mix/radio without a single video id — --no-playlist can't handle these.
+      if (params.has("list")) {
+        throw new Error(
+          "Playlists, mixes and radio links aren't supported — open the mix, click the video title to get its single-video link, and paste that instead."
+        );
+      }
+      return { url: trimmed, playlistStripped: false };
+    }
+    // SoundCloud: strip tracking query/hash, keep canonical path.
+    if (platform === "soundcloud") {
+      parsed.search = "";
+      parsed.hash = "";
+      return { url: parsed.toString(), playlistStripped: false };
+    }
+    return { url: trimmed, playlistStripped: false };
+  } catch (err) {
+    // Re-throw our own playlist guidance untouched; malformed URLs fall through.
+    if (err instanceof Error && /Playlists, mixes/.test(err.message)) throw err;
+    return { url: trimmed, playlistStripped: false };
+  }
 }
 
 function sanitizeTitle(title: string): string {
@@ -351,8 +405,14 @@ export function registerLinkImportRoutes(app: Express): void {
     if (!platform) {
       return res.status(400).json({ error: "Only YouTube and SoundCloud links are supported." });
     }
+    let canonical: CanonicalLink;
     try {
-      const info = await ytDlpJson(url.trim(), platform);
+      canonical = canonicalizeLink(url.trim(), platform);
+    } catch (err) {
+      return res.status(400).json({ error: (err as Error).message });
+    }
+    try {
+      const info = await ytDlpJson(canonical.url, platform);
       const duration = Math.round(Number(info.duration || 0));
       if (duration > MAX_MINUTES * 60) {
         return res.status(400).json({ error: `Track too long (max ${MAX_MINUTES} minutes).` });
@@ -365,7 +425,7 @@ export function registerLinkImportRoutes(app: Express): void {
         uploader: info.uploader || info.channel || undefined,
         thumbnail: info.thumbnail || undefined,
       };
-      res.json({ ok: true, meta });
+      res.json({ ok: true, meta, canonicalUrl: canonical.url, playlistStripped: canonical.playlistStripped });
     } catch (err) {
       res.status(502).json({ error: (err as Error).message });
     }
@@ -389,6 +449,12 @@ export function registerLinkImportRoutes(app: Express): void {
     if (!platform) {
       return res.status(400).json({ error: "Only YouTube and SoundCloud links are supported." });
     }
+    let canonical: CanonicalLink;
+    try {
+      canonical = canonicalizeLink(url.trim(), platform);
+    } catch (err) {
+      return res.status(400).json({ error: (err as Error).message });
+    }
     const activeForIp = [...jobs.values()].filter(
       (j) => (j.status === "queued" || j.status === "working")
     ).length;
@@ -396,14 +462,14 @@ export function registerLinkImportRoutes(app: Express): void {
       return res.status(429).json({ error: "Download queue is full. Try again shortly." });
     }
     try {
-      const info = await ytDlpJson(url.trim(), platform);
+      const info = await ytDlpJson(canonical.url, platform);
       const duration = Math.round(Number(info.duration || 0));
       if (duration > MAX_MINUTES * 60) {
         return res.status(400).json({ error: `Track too long (max ${MAX_MINUTES} minutes).` });
       }
       const job: Job = {
         id: newId(),
-        url: url.trim(),
+        url: canonical.url,
         platform,
         meta: {
           platform,

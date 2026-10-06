@@ -1,15 +1,32 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-VCG3R41XZK"></script>
+    <!-- Google tag (gtag.js) — deferred so analytics never blocks first paint.
+         Loads on idle (or first interaction); short visits may go uncounted. -->
     <script>
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-
-      gtag('config', 'G-VCG3R41XZK');
+      function loadGtag(){
+        if (window.__gtagLoaded) return; window.__gtagLoaded = true;
+        var s = document.createElement('script');
+        s.async = true;
+        s.src = 'https://www.googletagmanager.com/gtag/js?id=G-VCG3R41XZK';
+        document.head.appendChild(s);
+        gtag('js', new Date());
+        gtag('config', 'G-VCG3R41XZK');
+      }
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(function(){ setTimeout(loadGtag, 1500); }, { timeout: 4000 });
+      } else { setTimeout(loadGtag, 2500); }
+      ['pointerdown','keydown','scroll'].forEach(function(e){
+        window.addEventListener(e, loadGtag, { once: true, passive: true });
+      });
     </script>
+
+    <!-- Fonts: <link>, never CSS @import — @import serializes behind main.css -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;1,600&display=swap" rel="stylesheet" />
 
     <!-- Primary Meta Tags -->
     <meta charset="utf-8" />
@@ -17,13 +34,13 @@
     <meta name="theme-color" content="#0c0e0b" />
     <meta
       name="description"
-      content="SlowedLab is a private browser audio studio: paste a SoundCloud link to play it instantly, or upload files — change speed, add reverb, shape tone, and export finished WAV files."
+      content="Paste a SoundCloud link to play it instantly, or upload files. Slow down, add reverb, shape tone, export WAV — free in your browser."
     />
-    <meta name="keywords" content="audio editor, audio effects, reverb, EQ, audio player, music effects, online audio editor, web audio, audio processing, distortion, compression, soundcloud player, soundcloud link player, play soundcloud in browser, slowed soundcloud, soundcloud slowed reverb, soundcloud downloader alternative, soundcloud audio effects" />
+    <meta name="keywords" content="audio editor, audio effects, reverb, EQ, audio player, music effects, online audio editor, web audio, audio processing, distortion, compression, soundcloud player, soundcloud link player, play soundcloud in browser, slowed soundcloud, soundcloud slowed reverb, soundcloud audio effects" />
     <meta name="author" content="SlowedLab" />
     <meta name="robots" content="index, follow" />
     <meta name="language" content="English" />
-    <link rel="canonical" href="https://slowedlab.app" />
+    <link rel="canonical" href="https://slowedlab.app/" />
 
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="%PUBLIC_URL%/favicon.svg" />
@@ -31,7 +48,7 @@
 
     <!-- Open Graph / Social Media -->
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://slowedlab.app" />
+    <meta property="og:url" content="https://slowedlab.app/" />
     <meta property="og:title" content="SlowedLab - Private Browser Audio Studio" />
     <meta property="og:description" content="Paste a SoundCloud link to play it instantly, or upload your audio. Change speed, add reverb, shape tone, and export a finished WAV." />
     <meta property="og:image" content="https://slowedlab.app/og-image.png" />
@@ -42,7 +59,7 @@
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:url" content="https://slowedlab.app" />
+    <meta name="twitter:url" content="https://slowedlab.app/" />
     <meta name="twitter:title" content="SlowedLab - Private Browser Audio Studio" />
     <meta name="twitter:description" content="Paste a SoundCloud link to play it instantly, or upload your audio. Change speed, add reverb, shape tone, and export a finished WAV." />
     <meta name="twitter:image" content="https://slowedlab.app/og-image.png" />
@@ -54,47 +71,96 @@
     <meta name="revisit-after" content="7 days" />
     <meta name="distribution" content="global" />
     
-    <title>SlowedLab - Private Browser Audio Studio</title>
+    <title>SlowedLab – Slowed + Reverb Studio & SoundCloud Player</title>
 
-    <!-- JSON-LD Structured Data -->
+    <!-- JSON-LD Structured Data: entity graph (app ↔ site ↔ org) -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
-      "@type": "WebApplication",
-      "name": "SlowedLab",
-      "description": "Private browser audio studio: play SoundCloud links directly or upload files; speed, reverb, EQ, compression, distortion, and WAV export",
-      "url": "https://slowedlab.app",
-      "applicationCategory": "Multimedia",
-      "offers": {
-        "@type": "Offer",
-        "price": "0",
-        "priceCurrency": "USD",
-        "availability": "https://schema.org/InStock"
-      },
-      "image": "https://slowedlab.app/slowedlab-logo.png",
-      "screenshot": "https://github.com/user-attachments/assets/8f69cc72-2134-4e11-bfa0-c3625c520892",
-      "author": {
-        "@type": "Person",
-        "name": "Gwhyyy"
-      },
-      "featureList": [
-        "Variable-speed playback",
-        "Reverb",
-        "Real-time audio effects",
-        "Waveform visualization",
-        "Preset management",
-        "SoundCloud link import and direct playback",
-        "Multiple audio format support",
-        "Client-side processing"
-      ],
-      "browserRequirements": "Requires modern browser with Web Audio API support",
-      "permissions": "Audio input/output"
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://slowedlab.app/#org",
+          "name": "SlowedLab",
+          "url": "https://slowedlab.app/",
+          "sameAs": [
+            "https://github.com/anasfik/SlowedLab",
+            "https://x.com/gwhyyy",
+            "https://ko-fi.com/gwhyyy"
+          ]
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://slowedlab.app/#site",
+          "url": "https://slowedlab.app/",
+          "name": "SlowedLab",
+          "inLanguage": "en",
+          "publisher": { "@id": "https://slowedlab.app/#org" }
+        },
+        {
+          "@type": "WebApplication",
+          "@id": "https://slowedlab.app/#app",
+          "name": "SlowedLab",
+          "description": "Private browser audio studio: play SoundCloud links directly or upload files; speed, reverb, EQ, compression, distortion, and WAV export",
+          "url": "https://slowedlab.app/",
+          "applicationCategory": "Multimedia",
+          "operatingSystem": "Any",
+          "isAccessibleForFree": true,
+          "inLanguage": "en",
+          "offers": {
+            "@type": "Offer",
+            "price": 0,
+            "priceCurrency": "USD",
+            "availability": "https://schema.org/InStock"
+          },
+          "image": "https://slowedlab.app/slowedlab-logo.png",
+          "screenshot": "https://slowedlab.app/og-image.png",
+          "author": {
+            "@type": "Person",
+            "name": "Gwhyyy",
+            "url": "https://github.com/anasfik",
+            "sameAs": [
+              "https://x.com/gwhyyy",
+              "https://ko-fi.com/gwhyyy"
+            ]
+          },
+          "featureList": [
+            "Variable-speed playback",
+            "Reverb",
+            "Real-time audio effects",
+            "Waveform visualization",
+            "Preset management",
+            "SoundCloud link import and direct playback",
+            "Multiple audio format support",
+            "Client-side processing"
+          ],
+          "browserRequirements": "Requires modern browser with Web Audio API support"
+        }
+      ]
     }
     </script>
 
   </head>
   <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <noscript>
+      <div>
+        <h1>SlowedLab — free slowed + reverb studio and SoundCloud player</h1>
+        <p>SlowedLab is a free browser audio studio. Paste a SoundCloud link to play it instantly, or upload MP3, WAV, FLAC, OGG or AAC files (up to 200 MB). Change playback speed (0.50×–1.50×), add reverb, shape tone with EQ, compression and distortion, then export a finished WAV. No account, no signup — audio is processed on your own device and never uploaded to a server.</p>
+        <h2>How to use SlowedLab</h2>
+        <ol>
+          <li>Paste a public SoundCloud link or upload an audio file.</li>
+          <li>Pick a preset (Slowed + Reverb, Nightcore, Bass Boosted) or tune speed, reverb, EQ, compression and distortion yourself.</li>
+          <li>Preview with the waveform, seek by clicking, then export your mix as WAV.</li>
+        </ol>
+        <h2>Key facts</h2>
+        <ul>
+          <li>Free, no account required, MIT-licensed open source.</li>
+          <li>Private: effects run client-side via the Web Audio API.</li>
+          <li>Requires a modern browser with JavaScript enabled.</li>
+        </ul>
+        <p><a href="https://slowedlab.app/">Open SlowedLab</a> · <a href="https://github.com/anasfik/SlowedLab">Source code on GitHub</a></p>
+      </div>
+    </noscript>
     <div id="root"></div>
   </body>
 </html>

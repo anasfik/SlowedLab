@@ -7,23 +7,33 @@
 
 ## What it does
 
-- Variable-speed playback with pitch preservation (slowed / sped up)
-- Reverb plus EQ, compression and distortion
+- Variable-speed playback (0.50×–1.50×), including slowed + reverb presets
+- Reverb plus EQ, compression and distortion, tuned live while audio plays
 - Waveform visualization with click-to-seek
-- Presets, including custom ones
+- Presets, including custom ones (Slowed + Reverb, Nightcore, Bass Boosted, Lo-Fi Chill, Ethereal Dream, Crystal Clear, Distorted)
 - Paste a SoundCloud link to play it directly in the studio, or upload a local file
 - Export to WAV
 - Works with MP3, WAV, FLAC, OGG, AAC and more, up to 200 MB
 
+## How to use it
+
+1. Paste a public SoundCloud link (Cloud link tab) or upload audio files (Your files tab, or drop them anywhere).
+2. Pick a preset or tune speed, reverb, EQ, compression and distortion yourself.
+3. Preview with the waveform, seek by clicking, then export the mix as WAV.
+
+Note: a minority of SoundCloud streams are DRM-protected for third-party
+clients and cannot be imported — uploading the audio file always works.
+
 ## Key facts
 
-- URL: https://slowedlab.app
+- URL: https://slowedlab.app/
 - Pricing: free, no account required
 - License: MIT
+- Author: Gwhyyy (https://github.com/anasfik, https://x.com/gwhyyy)
 - Privacy: audio processing happens in the browser, not on a server
-- Requirements: a modern browser with Web Audio API support
+- Requirements: a modern browser with Web Audio API support and JavaScript enabled
 
 ## Links
 
-- [App](https://slowedlab.app): the audio studio itself
+- [App](https://slowedlab.app/): the audio studio itself
 - [Source](https://github.com/anasfik/SlowedLab): MIT-licensed source code

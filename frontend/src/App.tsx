@@ -1535,7 +1535,7 @@ export default function App() {
             <div className="empty-copy">
               <p className="overline">Private browser studio</p>
               <h1>Hear your track<br /><em>another way.</em></h1>
-              <p>Upload your audio — or paste a SoundCloud link to play it here. Shape it, then export a finished WAV.</p>
+              <p>Upload your audio — or paste a SoundCloud link to play it here. Slow it down, add reverb, shape tone, then export a finished WAV.</p>
 
               <div className="source-picker">
                 <div

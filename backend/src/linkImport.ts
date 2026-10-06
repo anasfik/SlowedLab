@@ -169,25 +169,31 @@ interface PickedStream {
 }
 
 /**
- * Pick a browser-downloadable stream from dump-json formats. Prefer
- * audio-only (smallest transfer the browser must pull), else any format
- * carrying audio (e.g. progressive mp4 when the provider serves a degraded
- * player to this host). Returns null when nothing carries audio.
+ * Pick a browser-downloadable stream from dump-json formats. Browsers can only
+ * fetch progressive HTTP(S) bytes — HLS/DASH playlists (m3u8, segmented) need
+ * a streaming client the app doesn't ship, and decodeAudioData rejects them
+ * with EncodingError. So: audio-only progressive first, then any progressive
+ * format carrying audio, never playlists. Returns null when only segmented
+ * streams exist (caller falls back to the server job queue, where ffmpeg
+ * handles HLS natively).
  */
 function pickStreamUrl(info: any): PickedStream | null {
   const formats = Array.isArray(info?.formats) ? info.formats : [];
-  const withUrl = formats.filter(
-    (f: any) => typeof f?.url === "string" && f.url.startsWith("http")
-  );
-  if (!withUrl.length) return null;
+  const isProgressive = (f: any) =>
+    typeof f?.url === "string" &&
+    f.url.startsWith("http") &&
+    typeof f?.protocol === "string" &&
+    /^(https?|http)$/.test(f.protocol);
+  const progressive = formats.filter(isProgressive);
+  if (!progressive.length) return null;
   const hasAudio = (f: any) => f.acodec && f.acodec !== "none";
-  const audioOnly = withUrl
+  const audioOnly = progressive
     .filter((f: any) => hasAudio(f) && (!f.vcodec || f.vcodec === "none"))
     .sort((a: any, b: any) => (b.abr || b.tbr || 0) - (a.abr || a.tbr || 0));
-  const progressive = withUrl
+  const withAudio = progressive
     .filter((f: any) => hasAudio(f))
     .sort((a: any, b: any) => (a.filesize || a.filesize_approx || Infinity) - (b.filesize || b.filesize_approx || Infinity));
-  const chosen = audioOnly[0] || progressive[0];
+  const chosen = audioOnly[0] || withAudio[0];
   if (!chosen) return null;
   const ext = String(chosen.ext || "mp4");
   const mime =

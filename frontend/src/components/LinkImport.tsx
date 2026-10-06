@@ -147,6 +147,14 @@ export default function LinkImport({ onFile, compact }: LinkImportProps) {
         }
       );
       setProgress(100);
+      // Guard: a playlist (m3u8) or error page decodes to EncodingError
+      // downstream. Reject it here so the server job queue gets its turn.
+      if (
+        blob.size < 1024 ||
+        /mpegurl|m3u8|^text\//i.test(blob.type || '')
+      ) {
+        throw new Error('Direct stream was a playlist, not audio.');
+      }
       onFile(new File([blob], stream.fileName || 'link-import', { type: stream.mime || blob.type || 'audio/mpeg' }));
       reset();
       return;

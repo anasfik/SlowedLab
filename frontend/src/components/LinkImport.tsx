@@ -89,12 +89,74 @@ export default function LinkImport({ onFile, compact }: LinkImportProps) {
 
   const resolve = () => resolveWith(url);
 
+  // Fetch with byte progress. Resolves false when the size is unknown so the
+  // caller can show an indeterminate state instead of a fake percentage.
+  const fetchWithProgress = async (
+    target: string,
+    onProgress: (fraction: number | null, loaded: number) => void,
+    signal?: AbortSignal
+  ): Promise<Blob> => {
+    const res = await fetch(target, signal ? { signal } : undefined);
+    if (!res.ok) throw new Error(`Direct fetch failed (HTTP ${res.status}).`);
+    const totalHeader = res.headers.get('content-length');
+    const total = totalHeader ? Number(totalHeader) : NaN;
+    if (!res.body || !Number.isFinite(total) || total <= 0) {
+      const blob = await res.blob();
+      onProgress(null, blob.size);
+      return blob;
+    }
+    const reader = res.body.getReader();
+    const chunks: BlobPart[] = [];
+    let loaded = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      loaded += value.byteLength;
+      onProgress(Math.min(0.99, loaded / total), loaded);
+    }
+    return new Blob(chunks as BlobPart[]);
+  };
+
   const download = async () => {
     const trimmed = url.trim();
     if (!trimmed) return;
     setPhase('working');
     setProgress(0);
     setError(null);
+    // 1) Direct browser fetch first: the visitor's own IP pulls the bytes, so
+    // provider IP blocks against our servers don't apply. Falls back to the
+    // server queue below on any failure (IP binding, CORS, adblock).
+    try {
+      setNotice('Fetching directly in your browser…');
+      const streamRes = await fetch('/api/audio/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: trimmed }),
+      });
+      const stream = await streamRes.json();
+      if (!streamRes.ok) throw new Error(stream.error || 'Direct fetch unavailable.');
+      if (stream.meta) setMeta(stream.meta);
+      const blob = await fetchWithProgress(
+        stream.streamUrl,
+        (fraction, loaded) => {
+          if (fraction == null) {
+            setProgress(prev => Math.min(99, prev + 7));
+            setNotice(`Fetching directly in your browser… ${(loaded / 1048576).toFixed(1)} MB`);
+          } else {
+            setProgress(Math.round(fraction * 100));
+          }
+        }
+      );
+      setProgress(100);
+      onFile(new File([blob], stream.fileName || 'link-import', { type: stream.mime || blob.type || 'audio/mpeg' }));
+      reset();
+      return;
+    } catch (directErr) {
+      console.warn('[link-import] direct browser fetch failed, falling back to server queue', directErr);
+      setNotice('Direct fetch blocked — trying our server instead…');
+      setProgress(0);
+    }
     try {
       const res = await fetch('/api/audio/jobs', {
         method: 'POST',

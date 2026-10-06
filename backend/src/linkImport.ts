@@ -2,9 +2,15 @@
  * Link import service — YouTube + SoundCloud via yt-dlp.
  *
  * Flow: POST /api/audio/resolve {url} -> metadata
- *       POST /api/audio/jobs {url}    -> {jobId} (queued)
+ *       POST /api/audio/stream  {url} -> direct media URL for browser fetch
+ *       POST /api/audio/jobs {url}    -> {jobId} (queued server download)
  *       GET  /api/audio/jobs/:id      -> status + progress
  *       GET  /api/audio/file/:id      -> cached mp3 (range-capable)
+ *
+ * Two download paths: browsers fetch the minted stream URL directly (their
+ * residential IP is what YouTube's media CDN accepts), falling back to the
+ * server-side job queue (needs cookies, and a residential YTDLP_PROXY when
+ * the host IP itself is blocked).
  *
  * Spotify links are rejected: no legal full-track download path exists.
  * VM deploy needs yt-dlp + ffmpeg + a JS runtime (deno) on PATH.
@@ -199,6 +205,40 @@ function friendlyError(rawTail: string, platform: Platform): string {
     return "YouTube is blocking downloads from this server right now, so the link couldn't be read. Try again later, or upload the audio file directly.";
   }
   return `Could not read that link (${rawTail.slice(0, 160)})`;
+}
+
+interface PickedStream {
+  url: string;
+  ext: string;
+  mime: string;
+  formatId?: string;
+}
+
+/**
+ * Pick a browser-downloadable stream from dump-json formats. Prefer
+ * audio-only (smallest transfer the browser must pull), else any format
+ * carrying audio (e.g. progressive mp4 when the provider serves a degraded
+ * player to this host). Returns null when nothing carries audio.
+ */
+function pickStreamUrl(info: any): PickedStream | null {
+  const formats = Array.isArray(info?.formats) ? info.formats : [];
+  const withUrl = formats.filter(
+    (f: any) => typeof f?.url === "string" && f.url.startsWith("http")
+  );
+  if (!withUrl.length) return null;
+  const hasAudio = (f: any) => f.acodec && f.acodec !== "none";
+  const audioOnly = withUrl
+    .filter((f: any) => hasAudio(f) && (!f.vcodec || f.vcodec === "none"))
+    .sort((a: any, b: any) => (b.abr || b.tbr || 0) - (a.abr || a.tbr || 0));
+  const progressive = withUrl
+    .filter((f: any) => hasAudio(f))
+    .sort((a: any, b: any) => (a.filesize || a.filesize_approx || Infinity) - (b.filesize || b.filesize_approx || Infinity));
+  const chosen = audioOnly[0] || progressive[0];
+  if (!chosen) return null;
+  const ext = String(chosen.ext || "mp4");
+  const mime =
+    ext === "webm" ? "audio/webm" : ext === "mp3" ? "audio/mpeg" : "audio/mp4";
+  return { url: chosen.url, ext, mime, formatId: chosen.format_id };
 }
 
 async function ytDlpJson(url: string, platform: Platform): Promise<any> {
@@ -439,6 +479,75 @@ export function registerLinkImportRoutes(app: Express): void {
         thumbnail: info.thumbnail || undefined,
       };
       res.json({ ok: true, meta, canonicalUrl: canonical.url, playlistStripped: canonical.playlistStripped });
+    } catch (err) {
+      res.status(502).json({ error: (err as Error).message });
+    }
+  });
+
+  // Direct browser-fetch endpoint. Mints a short-lived media URL (from the
+  // same dump-json call used for metadata) so the *visitor's* browser pulls
+  // the bytes with its own residential IP. Never logs the URL: it carries a
+  // per-video signature. Falls back to the server job queue when the browser
+  // can't fetch (IP binding, CORS, adblock).
+  app.post("/api/audio/stream", async (req: Request, res: Response) => {
+    const ip = req.ip || "unknown";
+    if (rateLimited(ip, "stream", 30, 60_000)) {
+      return res.status(429).json({ error: "Too many requests. Slow down." });
+    }
+    const { url } = req.body || {};
+    if (typeof url !== "string" || !url.trim()) {
+      return res.status(400).json({ error: "URL is required." });
+    }
+    const platform = detectPlatform(url.trim());
+    if (platform === "spotify") {
+      return res.status(400).json({
+        error: "Spotify links are not supported. Spotify offers no legal full-track download; paste a YouTube or SoundCloud link instead.",
+      });
+    }
+    if (!platform) {
+      return res.status(400).json({ error: "Only YouTube and SoundCloud links are supported." });
+    }
+    let canonical: CanonicalLink;
+    try {
+      canonical = canonicalizeLink(url.trim(), platform);
+    } catch (err) {
+      return res.status(400).json({ error: (err as Error).message });
+    }
+    try {
+      const info = await ytDlpJson(canonical.url, platform);
+      const duration = Math.round(Number(info.duration || 0));
+      if (duration > MAX_MINUTES * 60) {
+        return res.status(400).json({ error: `Track too long (max ${MAX_MINUTES} minutes).` });
+      }
+      const picked = pickStreamUrl(info);
+      if (!picked) {
+        return res.status(502).json({
+          error: "No playable audio stream was found for that link. Try another link or upload the audio file directly.",
+        });
+      }
+      let expiresAt: number | undefined;
+      try {
+        const exp = new URL(picked.url).searchParams.get("expire");
+        if (exp) expiresAt = Number(exp) * 1000;
+      } catch {
+        // Non-URL stream — leave expiresAt unset; the client uses it promptly.
+      }
+      const title = String(info.title || "Untitled");
+      res.json({
+        ok: true,
+        streamUrl: picked.url,
+        expiresAt,
+        fileName: `${sanitizeTitle(title)}.${picked.ext}`,
+        mime: picked.mime,
+        meta: {
+          platform,
+          id: String(info.id || newId()),
+          title,
+          duration,
+          uploader: info.uploader || info.channel || undefined,
+          thumbnail: info.thumbnail || undefined,
+        },
+      });
     } catch (err) {
       res.status(502).json({ error: (err as Error).message });
     }

@@ -20,6 +20,12 @@ import path from "path";
 export type Platform = "youtube" | "soundcloud";
 
 const YTDLP_BIN = process.env.YTDLP_BIN || "yt-dlp";
+// Residential egress for link import. Datacenter IPs are blocked by YouTube's
+// media CDN (HTTP 403 on googlevideo) even with valid cookies, so server-side
+// downloads need a residential HTTP/SOCKS5 proxy. Set YTDLP_PROXY (or the
+// LINKIMPORT_PROXY alias) to e.g. http://user:pass@host:port — it is passed
+// as yt-dlp --proxy for both metadata and download calls. Never logged.
+const YTDLP_PROXY = process.env.YTDLP_PROXY || process.env.LINKIMPORT_PROXY || "";
 const CACHE_DIR = path.resolve(process.cwd(), "data", "audio-cache");
 const DEFAULT_COOKIES_FILE = path.resolve(process.cwd(), "data", "cookies.txt");
 const MAX_MINUTES = Number(process.env.MAX_AUDIO_MINUTES || 15);
@@ -152,10 +158,15 @@ function cookiesFile(): string | undefined {
 export function linkImportDiagnostics() {
   return {
     ytDlp: YTDLP_BIN,
+    proxy: YTDLP_PROXY ? { configured: true } : { configured: false },
     cookies: cookiesFile()
       ? { configured: true, source: "auto-detected" }
       : { configured: false, hint: "Drop a Netscape cookies.txt at backend/data/cookies.txt" },
   };
+}
+
+function proxyArgs(): string[] {
+  return YTDLP_PROXY ? ["--proxy", YTDLP_PROXY] : [];
 }
 
 function cookieArgs(): string[] {
@@ -201,6 +212,7 @@ async function ytDlpJson(url: string, platform: Platform): Promise<any> {
         "--no-warnings",
         "--socket-timeout",
         "20",
+        ...proxyArgs(),
         ...cookieArgs(),
         ...extraArgs(),
         url,
@@ -324,6 +336,7 @@ function runDownload(job: Job): Promise<void> {
       "20",
       "-o",
       outTemplate,
+      ...proxyArgs(),
       ...cookieArgs(),
       ...extraArgs(),
       job.url,

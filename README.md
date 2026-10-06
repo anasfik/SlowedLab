@@ -59,6 +59,7 @@ is git-ignored.
 | `AUDIO_CACHE_MB` | `1024` | Audio cache cap |
 | `AUDIO_CACHE_FILES` | `100` | Max cached files |
 | `YTDLP_COOKIES_FILE` | auto | Explicit cookie path override; otherwise `backend/data/cookies.txt` is auto-detected |
+| `YTDLP_PROXY` (`.env`) | unset | Residential proxy for yt-dlp (resolve + download); health reports only `configured:true/false`, never the URL |
 | `BACKEND_PROXY_URL` (frontend) | `http://backend:4001` | Where the dev server forwards same-origin `/api/*` calls (docker service DNS; host `npm start` falls back to `http://localhost:4001`) |
 
 Live source mounts (`backend/src`, `backend/tsconfig.json`, `frontend/src`,
@@ -75,7 +76,9 @@ Downloaded audio persists in `backend/data/audio-cache` (host-mounted).
 ### YouTube bot-checks / 403s
 
 YouTube challenges datacenter IPs with "Sign in to confirm you're not a bot".
-No extractor option avoids it — cookies are the fix.
+Cookies fix metadata reads; if **downloads** still 403 on the media CDN
+(`googlevideo`), the IP itself is blocked and only residential egress fixes
+it — see step 4.
 
 1. Export a Netscape `cookies.txt` from a browser where YouTube works:
 
@@ -92,8 +95,23 @@ No extractor option avoids it — cookies are the fix.
 
    ```bash
    curl -s http://localhost:4001/api/health
-   # "linkImport":{"ytDlp":"yt-dlp","cookies":{"configured":true,...}}
+   # "linkImport":{"ytDlp":"yt-dlp","proxy":{"configured":false},"cookies":{"configured":true,...}}
    ```
+
+4. If metadata resolves but downloads 403: add residential egress. Any
+   residential HTTP/HTTPS/SOCKS5 proxy works — put it in `.env` (git-ignored,
+   never commit credentials) and recreate the backend:
+
+   ```bash
+   # .env
+   YTDLP_PROXY=http://user:pass@host:port
+   # or: YTDLP_PROXY=socks5://user:pass@host:port
+   docker compose up -d backend   # picks up the new variable
+   ```
+
+   Health then reports `"proxy":{"configured":true}` (the URL itself is never
+   exposed). Expect roughly a few dollars per GB or ~$5–15/mo for a small
+   proxy plan; a 4-minute song is ~4 MB, so light use stays cheap.
 
 `YTDLP_COOKIES_FILE` still works as an explicit override if you keep the file
 elsewhere (set it in `docker-compose.yml`, uncommented). SoundCloud marks most

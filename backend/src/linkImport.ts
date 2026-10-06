@@ -1,5 +1,5 @@
 /**
- * Link import service — YouTube + SoundCloud via yt-dlp.
+ * Link import service — SoundCloud via yt-dlp.
  *
  * Flow: POST /api/audio/resolve {url} -> metadata
  *       POST /api/audio/stream  {url} -> direct media URL for browser fetch
@@ -7,14 +7,13 @@
  *       GET  /api/audio/jobs/:id      -> status + progress
  *       GET  /api/audio/file/:id      -> cached mp3 (range-capable)
  *
- * Two download paths: browsers fetch the minted stream URL directly (their
- * residential IP is what YouTube's media CDN accepts), falling back to the
- * server-side job queue (needs cookies, and a residential YTDLP_PROXY when
- * the host IP itself is blocked).
+ * Two download paths: browsers fetch the minted stream URL directly, falling
+ * back to the server-side job queue. YouTube is not supported (see below).
  *
  * Spotify links are rejected: no legal full-track download path exists.
+ * YouTube links are rejected: YouTube blocks datacenter IPs at the media CDN
+ * level, so server-side YouTube downloads cannot work from typical hosts.
  * VM deploy needs yt-dlp + ffmpeg + a JS runtime (deno) on PATH.
- * Set YTDLP_COOKIES_FILE when YouTube serves bot-checks/403s.
  */
 
 import { execFile, spawn } from "child_process";
@@ -23,14 +22,14 @@ import fs from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
 
-export type Platform = "youtube" | "soundcloud";
+export type Platform = "soundcloud";
+
+// YouTube hostnames are recognized only to reject them with a clear message
+// (see routes below). They are never passed to yt-dlp.
 
 const YTDLP_BIN = process.env.YTDLP_BIN || "yt-dlp";
-// Residential egress for link import. Datacenter IPs are blocked by YouTube's
-// media CDN (HTTP 403 on googlevideo) even with valid cookies, so server-side
-// downloads need a residential HTTP/SOCKS5 proxy. Set YTDLP_PROXY (or the
-// LINKIMPORT_PROXY alias) to e.g. http://user:pass@host:port — it is passed
-// as yt-dlp --proxy for both metadata and download calls. Never logged.
+// Optional egress override for link import. Passed as yt-dlp --proxy for
+// metadata, stream-minting and download calls. Never logged.
 const YTDLP_PROXY = process.env.YTDLP_PROXY || process.env.LINKIMPORT_PROXY || "";
 const CACHE_DIR = path.resolve(process.cwd(), "data", "audio-cache");
 const DEFAULT_COOKIES_FILE = path.resolve(process.cwd(), "data", "cookies.txt");
@@ -60,7 +59,7 @@ const SOUNDCLOUD_HOSTS = new Set([
   "snd.sc",
 ]);
 
-export function detectPlatform(rawUrl: string): Platform | "spotify" | null {
+export function detectPlatform(rawUrl: string): Platform | "spotify" | "youtube" | null {
   let host: string;
   try {
     host = new URL(rawUrl).hostname.toLowerCase();
@@ -89,49 +88,13 @@ export interface ResolvedMeta {
 
 export function canonicalizeLink(rawUrl: string, platform: Platform): CanonicalLink {
   const trimmed = rawUrl.trim();
+  // SoundCloud: strip tracking query/hash, keep canonical path.
   try {
     const parsed = new URL(trimmed);
-    if (platform === "youtube") {
-      const params = parsed.searchParams;
-      // Single video id from ?v=, youtu.be/<id>, /shorts/<id>, /embed/<id>, /live/<id>, /v/<id>
-      let videoId: string | null = null;
-      const v = params.get("v");
-      if (v && /^[A-Za-z0-9_-]{11}$/.test(v)) videoId = v;
-      if (!videoId) {
-        const host = parsed.hostname.toLowerCase();
-        const parts = parsed.pathname.split("/").filter(Boolean);
-        if ((host === "youtu.be" || host === "www.youtu.be") && parts[0]?.match(/^[A-Za-z0-9_-]{11}$/)) {
-          videoId = parts[0];
-        } else if (parts.length >= 2 && ["shorts", "embed", "live", "v"].includes(parts[0]) && /^[A-Za-z0-9_-]{11}$/.test(parts[1])) {
-          videoId = parts[1];
-        }
-      }
-      const hadPlaylistParams =
-        params.has("list") || params.has("start_radio") || params.has("pp") || params.has("index");
-      if (videoId) {
-        return {
-          url: `https://www.youtube.com/watch?v=${videoId}`,
-          playlistStripped: hadPlaylistParams,
-        };
-      }
-      // Playlist/mix/radio without a single video id — --no-playlist can't handle these.
-      if (params.has("list")) {
-        throw new Error(
-          "Playlists, mixes and radio links aren't supported — open the mix, click the video title to get its single-video link, and paste that instead."
-        );
-      }
-      return { url: trimmed, playlistStripped: false };
-    }
-    // SoundCloud: strip tracking query/hash, keep canonical path.
-    if (platform === "soundcloud") {
-      parsed.search = "";
-      parsed.hash = "";
-      return { url: parsed.toString(), playlistStripped: false };
-    }
-    return { url: trimmed, playlistStripped: false };
-  } catch (err) {
-    // Re-throw our own playlist guidance untouched; malformed URLs fall through.
-    if (err instanceof Error && /Playlists, mixes/.test(err.message)) throw err;
+    parsed.search = "";
+    parsed.hash = "";
+    return { url: parsed.toString(), playlistStripped: false };
+  } catch {
     return { url: trimmed, playlistStripped: false };
   }
 }
@@ -185,24 +148,15 @@ function extraArgs(): string[] {
   return raw ? raw.split(/\s+/) : [];
 }
 
-const BOT_CHECK_RE = /sign in to confirm|not a bot|403|forbidden/i;
 const DRM_RE = /drm protected/i;
 
 /**
- * YouTube blocks datacenter IPs with a "sign in to confirm you're not a bot"
- * challenge; cookies are the only reliable fix. SoundCloud marks most streams
- * DRM-protected for third-party clients. Neither is the user's fault, so the
- * message says what happened and what still works.
+ * SoundCloud marks some streams DRM-protected for third-party clients.
+ * Not the user's fault, so the message says what happened and what works.
  */
 function friendlyError(rawTail: string, platform: Platform): string {
   if (DRM_RE.test(rawTail)) {
-    return `That ${platform === "soundcloud" ? "SoundCloud" : ""} track is DRM-protected and can't be imported. Try another track or upload the audio file directly.`.replace(
-      /\s+/g,
-      " "
-    );
-  }
-  if (BOT_CHECK_RE.test(rawTail)) {
-    return "YouTube is blocking downloads from this server right now, so the link couldn't be read. Try again later, or upload the audio file directly.";
+    return "That SoundCloud track is DRM-protected and can't be imported. Try another track or upload the audio file directly.";
   }
   return `Could not read that link (${rawTail.slice(0, 160)})`;
 }
@@ -261,12 +215,6 @@ async function ytDlpJson(url: string, platform: Platform): Promise<any> {
       (err, stdout, stderr) => {
         if (err) {
           const tail = String(stderr || err.message).slice(-500);
-          if (BOT_CHECK_RE.test(tail)) {
-            console.warn(
-              `[link-import] ${platform} bot-check blocked by the provider. ` +
-                `Serve cookies to recover: see README "YouTube bot-checks / 403s".`
-            );
-          }
           return reject(new Error(friendlyError(tail, platform)));
         }
         try {
@@ -407,7 +355,7 @@ function runDownload(job: Job): Promise<void> {
     child.on("close", async (code) => {
       clearTimeout(timer);
       if (code !== 0) {
-        if (BOT_CHECK_RE.test(errTail) || DRM_RE.test(errTail)) {
+        if (DRM_RE.test(errTail)) {
           return reject(new Error(friendlyError(errTail, job.platform)));
         }
         return reject(new Error(`Download failed (${errTail.slice(-180) || `exit ${code}`})`));
@@ -450,13 +398,18 @@ export function registerLinkImportRoutes(app: Express): void {
       return res.status(400).json({ error: "URL is required." });
     }
     const platform = detectPlatform(url.trim());
+    if (platform === "youtube") {
+      return res.status(400).json({
+        error: "YouTube links are no longer supported — paste a SoundCloud link or upload the audio file directly.",
+      });
+    }
     if (platform === "spotify") {
       return res.status(400).json({
-        error: "Spotify links are not supported. Spotify offers no legal full-track download; paste a YouTube or SoundCloud link instead.",
+        error: "Spotify links are not supported. Spotify offers no legal full-track download; paste a SoundCloud link instead.",
       });
     }
     if (!platform) {
-      return res.status(400).json({ error: "Only YouTube and SoundCloud links are supported." });
+      return res.status(400).json({ error: "Only SoundCloud links are supported." });
     }
     let canonical: CanonicalLink;
     try {
@@ -485,10 +438,10 @@ export function registerLinkImportRoutes(app: Express): void {
   });
 
   // Direct browser-fetch endpoint. Mints a short-lived media URL (from the
-  // same dump-json call used for metadata) so the *visitor's* browser pulls
-  // the bytes with its own residential IP. Never logs the URL: it carries a
-  // per-video signature. Falls back to the server job queue when the browser
-  // can't fetch (IP binding, CORS, adblock).
+  // same dump-json call used for metadata) so the *visitor's* browser can
+  // pull the bytes directly — fastest path with no server bandwidth or cache
+  // involved. Never logs the URL: it carries a per-track signature. Falls
+  // back to the server job queue when the browser can't fetch.
   app.post("/api/audio/stream", async (req: Request, res: Response) => {
     const ip = req.ip || "unknown";
     if (rateLimited(ip, "stream", 30, 60_000)) {
@@ -499,13 +452,18 @@ export function registerLinkImportRoutes(app: Express): void {
       return res.status(400).json({ error: "URL is required." });
     }
     const platform = detectPlatform(url.trim());
+    if (platform === "youtube") {
+      return res.status(400).json({
+        error: "YouTube links are no longer supported — paste a SoundCloud link or upload the audio file directly.",
+      });
+    }
     if (platform === "spotify") {
       return res.status(400).json({
-        error: "Spotify links are not supported. Spotify offers no legal full-track download; paste a YouTube or SoundCloud link instead.",
+        error: "Spotify links are not supported. Spotify offers no legal full-track download; paste a SoundCloud link instead.",
       });
     }
     if (!platform) {
-      return res.status(400).json({ error: "Only YouTube and SoundCloud links are supported." });
+      return res.status(400).json({ error: "Only SoundCloud links are supported." });
     }
     let canonical: CanonicalLink;
     try {
@@ -563,13 +521,18 @@ export function registerLinkImportRoutes(app: Express): void {
       return res.status(400).json({ error: "URL is required." });
     }
     const platform = detectPlatform(url.trim());
+    if (platform === "youtube") {
+      return res.status(400).json({
+        error: "YouTube links are no longer supported — paste a SoundCloud link or upload the audio file directly.",
+      });
+    }
     if (platform === "spotify") {
       return res.status(400).json({
-        error: "Spotify links are not supported. Spotify offers no legal full-track download; paste a YouTube or SoundCloud link instead.",
+        error: "Spotify links are not supported. Spotify offers no legal full-track download; paste a SoundCloud link instead.",
       });
     }
     if (!platform) {
-      return res.status(400).json({ error: "Only YouTube and SoundCloud links are supported." });
+      return res.status(400).json({ error: "Only SoundCloud links are supported." });
     }
     let canonical: CanonicalLink;
     try {

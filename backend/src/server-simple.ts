@@ -1,6 +1,6 @@
 /**
  * Backend Express Server - Simplified for URL Fetching
- * Handles YouTube/Spotify URL audio extraction
+ * Handles SoundCloud URL audio extraction
  */
 
 import express, { Request, Response, NextFunction } from "express";
@@ -116,7 +116,7 @@ const PORT = process.env.PORT || 4001;
 app.listen(PORT, () => {
   console.log(`🎵 SlowedLab API Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
-  console.log(`✅ Link import enabled (YouTube + SoundCloud via yt-dlp)`);
+  console.log(`✅ Link import enabled (SoundCloud via yt-dlp)`);
   console.log(`📡 Ready to accept requests at http://localhost:${PORT}`);
 });
 

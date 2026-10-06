@@ -653,14 +653,11 @@ input[type='range']::-moz-range-thumb { width: 9px; height: 9px; border: 4px sol
 .link-step { color: var(--text-muted); font: 10px/1 var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; }
 .source-pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--text-soft); font-size: 11px; font-weight: 600; }
 .source-pill svg { font-size: 14px; }
-.source-pill.youtube svg { color: #ff4e45; }
 .source-pill.soundcloud svg { color: #ff7700; }
 .link-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 4px; min-height: 54px; padding: 4px 4px 4px 12px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255, 255, 255, 0.025); transition: border-color 220ms var(--ease); }
 .link-row:focus-within { border-color: var(--accent); }
-.link-row.has-youtube { border-color: rgba(255, 78, 69, 0.4); }
 .link-row.has-soundcloud { border-color: rgba(255, 119, 0, 0.4); }
 .link-row-logo { display: grid; place-items: center; color: var(--text-muted); }
-.logo-youtube { color: #ff4e45; }
 .logo-soundcloud { color: #ff7700; }
 .link-row input { min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 13px; }
 .link-row input::placeholder { color: #676b60; }

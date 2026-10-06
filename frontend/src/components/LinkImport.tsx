@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { FiDownload, FiLink, FiX } from 'react-icons/fi';
-import { FaSoundcloud, FaYoutube } from 'react-icons/fa';
+import { FaSoundcloud } from 'react-icons/fa';
 
 interface LinkImportProps {
   onFile: (file: File) => void;
@@ -22,15 +22,13 @@ function formatDuration(total: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
-function guessPlatform(value: string): 'youtube' | 'soundcloud' | null {
+function guessPlatform(value: string): 'soundcloud' | null {
   const v = value.toLowerCase();
-  if (/youtu\.?be|youtube|youtube-nocookie/.test(v)) return 'youtube';
   if (/soundcloud|snd\.sc/.test(v)) return 'soundcloud';
   return null;
 }
 
 function PlatformLogo({ platform, size = 18 }: { platform: string | null; size?: number }) {
-  if (platform === 'youtube') return <FaYoutube size={size} className="logo-youtube" aria-label="YouTube" />;
   if (platform === 'soundcloud') return <FaSoundcloud size={size} className="logo-soundcloud" aria-label="SoundCloud" />;
   return <FiLink size={size} aria-hidden="true" />;
 }
@@ -201,20 +199,19 @@ export default function LinkImport({ onFile, compact }: LinkImportProps) {
     <div className={`link-import ${compact ? 'compact' : ''}`}>
       <div className="link-sources">
         <span className="link-step">Paste a link from</span>
-        <span className="source-pill youtube"><FaYoutube aria-hidden="true" /> YouTube</span>
         <span className="source-pill soundcloud"><FaSoundcloud aria-hidden="true" /> SoundCloud</span>
       </div>
 
       <div className={`link-row ${platform ? `has-${platform}` : ''}`}>
         <span className="link-row-logo"><PlatformLogo platform={platform} /></span>
         <label className="sr-only" htmlFor={inputId}>
-          Paste a YouTube or SoundCloud link
+          Paste a SoundCloud link
         </label>
         <input
           id={inputId}
           type="url"
           inputMode="url"
-          placeholder="Paste link here — we fetch it automatically"
+          placeholder="Paste a SoundCloud link here — we fetch it automatically"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           onPaste={(e) => {

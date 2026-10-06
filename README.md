@@ -73,50 +73,19 @@ bundle breaks every visitor whose machine is not yours.
 Downloaded audio persists in `backend/data/audio-cache` (host-mounted).
 `cookies.txt` is git-ignored — never commit it.
 
-### YouTube bot-checks / 403s
+### SoundCloud import notes
 
-YouTube challenges datacenter IPs with "Sign in to confirm you're not a bot".
-Cookies fix metadata reads; if **downloads** still 403 on the media CDN
-(`googlevideo`), the IP itself is blocked and only residential egress fixes
-it — see step 4.
+SoundCloud marks a minority of streams DRM-protected for third-party
+clients — those tracks can't be imported, and the app says so instead of
+hanging. If a public track fails to resolve, a Netscape `cookies.txt`
+exported from a logged-in browser tab and saved as `backend/data/cookies.txt`
+(git-ignored — never commit it) is auto-detected and retried with it.
+Confirm pickup with:
 
-1. Export a Netscape `cookies.txt` from a browser where YouTube works:
-
-   ```bash
-   # on a machine with Chrome logged out of (or into) YouTube
-   yt-dlp --cookies-from-browser chrome --cookies cookies.txt "https://www.youtube.com/"
-   # or export the extension "Get cookies.txt LOCALLY" while on youtube.com
-   ```
-
-2. Save it as `backend/data/cookies.txt` (git-ignored — never commit it).
-   The backend **auto-detects** that path; no restart or compose edit needed.
-
-3. Confirm it was picked up:
-
-   ```bash
-   curl -s http://localhost:4001/api/health
-   # "linkImport":{"ytDlp":"yt-dlp","proxy":{"configured":false},"cookies":{"configured":true,...}}
-   ```
-
-4. If metadata resolves but downloads 403: add residential egress. Any
-   residential HTTP/HTTPS/SOCKS5 proxy works — put it in `.env` (git-ignored,
-   never commit credentials) and recreate the backend:
-
-   ```bash
-   # .env
-   YTDLP_PROXY=http://user:pass@host:port
-   # or: YTDLP_PROXY=socks5://user:pass@host:port
-   docker compose up -d backend   # picks up the new variable
-   ```
-
-   Health then reports `"proxy":{"configured":true}` (the URL itself is never
-   exposed). Expect roughly a few dollars per GB or ~$5–15/mo for a small
-   proxy plan; a 4-minute song is ~4 MB, so light use stays cheap.
-
-`YTDLP_COOKIES_FILE` still works as an explicit override if you keep the file
-elsewhere (set it in `docker-compose.yml`, uncommented). SoundCloud marks most
-streams DRM-protected for third-party clients, so some SoundCloud tracks cannot
-be imported at all — file upload still works.
+```bash
+curl -s http://localhost:4001/api/health
+# "linkImport":{"ytDlp":"yt-dlp","proxy":{"configured":false},"cookies":{"configured":true,...}}
+```
 
 ## Deploying (VPS)
 
@@ -203,22 +172,21 @@ whatever `PORT` you set in `.env.local`. The dev server proxies `/api/*` to
 6. **Export** your processed audio as a WAV file
 7. **Report bugs** using the 🐞 button for feedback and improvements
 
-## Link Import (YouTube + SoundCloud)
+## Link Import (SoundCloud)
 
-Paste a YouTube or SoundCloud link in the empty state or queue panel.
-The backend resolves metadata, downloads audio with `yt-dlp`, converts to
-MP3 via `ffmpeg`, caches it under `backend/data/audio-cache`, and feeds it
-into the normal playback pipeline. Spotify links are rejected: Spotify
-offers no legal full-track download path.
+Paste a SoundCloud link in the empty state or queue panel.
+The backend resolves metadata, mints a short-lived stream URL the browser
+fetches directly (fastest, no server bandwidth), and falls back to a
+server-side download with `yt-dlp` + `ffmpeg` MP3 conversion, cached under
+`backend/data/audio-cache` and fed into the normal playback pipeline.
+Spotify and YouTube links are rejected: Spotify offers no legal full-track
+download path, and YouTube blocks server-side downloads from datacenter IPs.
 
 VM deploy notes (also see above):
 
 - The backend image ships `yt-dlp`, `ffmpeg`, and `deno` already.
 - Cap downloads with `MAX_AUDIO_MINUTES` (default 15),
   `LINKIMPORT_CONCURRENCY` (default 2), `AUDIO_CACHE_MB` (default 1024).
-- If YouTube serves bot-checks or 403s, drop a Netscape `cookies.txt` into
-  `backend/data/cookies.txt`; it is auto-detected (see "YouTube bot-checks /
-  403s" above).
 
 ## Tech Stack
 

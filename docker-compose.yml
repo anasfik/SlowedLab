@@ -18,13 +18,12 @@ services:
       - LINKIMPORT_CONCURRENCY=2
       - AUDIO_CACHE_MB=1024
       - AUDIO_CACHE_FILES=100
-      # Link import reads backend/data/cookies.txt automatically when present.
+      # Link import reads backend/data/cookies.txt automatically when present
+      # (rarely needed for SoundCloud; useful for limited/private tracks).
       # Only set YTDLP_COOKIES_FILE if you keep the cookie file elsewhere.
       # - YTDLP_COOKIES_FILE=/app/data/cookies.txt
-      # Residential egress for YouTube downloads. Datacenter IPs get HTTP 403
-      # on media even with valid cookies — set this to a residential proxy
-      # (http/https/socks5) and yt-dlp routes both resolve and download
-      # through it. Lives in .env (git-ignored), never commit credentials.
+      # Optional egress override for link-import traffic (yt-dlp --proxy).
+      # Lives in .env (git-ignored), never commit credentials.
       - YTDLP_PROXY=${YTDLP_PROXY:-}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4001/api/health"]

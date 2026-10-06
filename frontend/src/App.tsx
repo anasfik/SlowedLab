@@ -1573,7 +1573,7 @@ export default function App() {
                     onClick={() => setImportSource('cloud')}
                   >
                     <FiLink aria-hidden="true" />
-                    <span><strong>Cloud link</strong><small>YouTube or SoundCloud</small></span>
+                    <span><strong>Cloud link</strong><small>SoundCloud</small></span>
                   </button>
                 </div>
 

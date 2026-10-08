@@ -1533,8 +1533,6 @@ export default function App() {
     <div className="app">
       <a className="skip-link" href="#main-content">Skip to studio</a>
       <Topbar
-        currentTrackName={currentTrack?.file.name || 'No track loaded'}
-        audio={audio}
         selectedPreset={selectedPreset}
         applyPreset={applyPreset}
         PRESETS={PRESETS}
@@ -1547,7 +1545,6 @@ export default function App() {
         setBugMessage={setBugMessage}
         isStudioOpen={isSidebarOpen}
         onOpenStudio={() => setIsSidebarOpen(true)}
-        onOpenQueue={() => setIsPlaylistOpen(true)}
       />
 
       <main
@@ -1692,10 +1689,6 @@ export default function App() {
         {new URLSearchParams(window.location.search).get('audio-debug') === '1' && (
           <AudioOutputTest getContext={() => audioContextRef.current} stopPlayback={stopAudio} />
         )}
-        <div className="dock-track">
-          <span className="dock-art"><img src="/logo-mark.svg" alt="" /></span>
-          <p><strong>{currentTrack ? currentTrack.file.name.replace(/\.[^/.]+$/, '') : 'No track selected'}</strong><small>{currentTrack ? `${activePresetLabel} · ${formatTime(audio.currentTime)} / ${formatTime((currentTrack.duration || 0) / effects.playbackRate)}` : 'Add audio to begin'}</small></p>
-        </div>
         <div className="transport-controls">
           <div
             className="transport-nav"

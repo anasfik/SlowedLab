@@ -4,11 +4,9 @@ import {
     FiSave, FiSearch, FiSliders, FiUploadCloud
 } from 'react-icons/fi';
 import { RiBugLine } from 'react-icons/ri';
-import { AudioState, IconRenderer, Preset, UserPreset } from '../App';
+import { IconRenderer, Preset, UserPreset } from '../App';
 
 interface TopbarProps {
-    currentTrackName: string;
-    audio: AudioState;
     selectedPreset: string;
     applyPreset: (name: string) => void;
     PRESETS: Preset[];
@@ -21,12 +19,9 @@ interface TopbarProps {
     setBugMessage: (msg: string | null) => void;
     isStudioOpen: boolean;
     onOpenStudio: () => void;
-    onOpenQueue: () => void;
 }
 
 const Topbar: React.FC<TopbarProps> = ({
-    currentTrackName,
-    audio,
     selectedPreset,
     applyPreset,
     PRESETS,
@@ -39,7 +34,6 @@ const Topbar: React.FC<TopbarProps> = ({
     setBugMessage,
     isStudioOpen,
     onOpenStudio,
-    onOpenQueue,
 }) => {
     const [isPresetMenuOpen, setIsPresetMenuOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
@@ -78,17 +72,6 @@ const Topbar: React.FC<TopbarProps> = ({
                     <small>Browser audio studio</small>
                 </span>
             </a>
-
-            <button
-                className="topbar-session hoverable"
-                onClick={onOpenQueue}
-                title={audio.playlist.length ? `Open queue — ${audio.playlist.length} track${audio.playlist.length === 1 ? '' : 's'}` : 'Queue is empty — add audio to begin'}
-                aria-label={audio.playlist.length ? `Open queue, ${audio.playlist.length} tracks` : 'Open queue'}
-            >
-                <span className={`session-dot ${audio.isPlaying ? 'playing' : ''}`} aria-hidden="true" />
-                <span className="topbar-track-name">{currentTrackName}</span>
-                <span className="topbar-track-count">{audio.playlist.length || 0} in queue</span>
-            </button>
 
             <nav className="topbar-actions" aria-label="Studio actions">
                 <div className="preset-menu" ref={menuRef}>

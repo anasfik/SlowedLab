@@ -108,7 +108,7 @@ button:disabled { cursor: not-allowed; opacity: 0.38; }
   left: 18px;
   right: 18px;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 20px;
   min-height: 70px;
@@ -149,28 +149,6 @@ button:disabled { cursor: not-allowed; opacity: 0.38; }
 .brand-copy strong { font-size: 15px; letter-spacing: -0.025em; }
 .brand-copy small { color: var(--text-muted); font-size: 10px; }
 
-/* Session pill is a button that opens the queue — full hover affordance. */
-.topbar-session {
-  display: flex;
-  min-width: 0;
-  max-width: 100%;
-  align-items: center;
-  justify-content: center;
-  justify-self: center;
-  gap: 9px;
-  padding: 10px 16px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-soft);
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 200ms var(--ease), border-color 200ms var(--ease), color 200ms var(--ease), transform 200ms var(--ease);
-}
-
-.topbar-session:hover { border-color: var(--line); background: var(--surface-hover); color: var(--text); transform: translateY(-1px); }
-.topbar-session:active { transform: scale(0.98); }
-
 .session-dot {
   width: 7px;
   height: 7px;
@@ -180,11 +158,8 @@ button:disabled { cursor: not-allowed; opacity: 0.38; }
 }
 
 .session-dot.playing { background: var(--success); box-shadow: 0 0 0 4px rgba(167, 198, 140, 0.09); }
-.topbar-track-name { max-width: 30vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.topbar-track-count { padding: 3px 8px; border-radius: 999px; background: var(--surface-strong); color: var(--text-muted); font: 500 10px/1 var(--font-mono); white-space: nowrap; }
-.topbar-session:hover .topbar-track-count { color: var(--text); }
 
-.topbar-actions { display: flex; align-items: center; gap: 8px; }
+.topbar-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 
 .studio-action.active { border-color: rgba(255, 158, 74, 0.45); background: rgba(255, 158, 74, 0.1); color: var(--accent); }
 
@@ -451,9 +426,10 @@ button.hoverable:disabled, label.hoverable:has(input:disabled) { cursor: not-all
   right: 18px;
   bottom: max(14px, env(safe-area-inset-bottom));
   left: 18px;
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr);
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   min-height: 82px;
   padding: 9px 12px;
   border: 1px solid var(--line);
@@ -462,13 +438,7 @@ button.hoverable:disabled, label.hoverable:has(input:disabled) { cursor: not-all
   box-shadow: 0 -10px 60px rgba(0, 0, 0, 0.3), inset 0 1px rgba(255, 255, 255, 0.035);
   backdrop-filter: blur(22px);
 }
-.dock-track { display: flex; min-width: 0; align-items: center; gap: 11px; }
-.dock-art { display: grid; width: 48px; height: 48px; flex: 0 0 auto; place-items: center; border-radius: 12px; background: var(--surface-strong); }
-.dock-art img { display: block; width: 27px; height: 27px; }
-.dock-track p { display: grid; min-width: 0; gap: 2px; margin: 0; }
-.dock-track strong { max-width: 26vw; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.dock-track small { overflow: hidden; color: var(--text-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.transport-controls { display: flex; align-items: center; gap: 7px; }
+.transport-controls { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .transport-button, .play-button { display: grid; width: 44px; height: 44px; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--text-soft); cursor: pointer; transition: background 200ms var(--ease), color 200ms var(--ease), transform 200ms var(--ease), box-shadow 200ms var(--ease); }
 .transport-button:hover:not(:disabled) { background: var(--surface-strong); color: var(--text); transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3); }
 .play-button { width: 56px; height: 56px; margin: 0 2px; background: var(--accent); color: var(--accent-ink); font-size: 20px; box-shadow: inset 0 1px rgba(255, 255, 255, 0.45); }
@@ -678,7 +648,6 @@ input[type='range']::-moz-range-thumb { width: 9px; height: 9px; border: 4px sol
 
 @media (max-width: 1100px) {
   .topbar { grid-template-columns: auto 1fr; }
-  .topbar-session { display: none; }
   .topbar-actions { justify-content: flex-end; }
   .utility-actions a:first-child { display: none; }
   .empty-workspace { grid-template-columns: 0.85fr 1.15fr; gap: 54px; }
@@ -725,8 +694,7 @@ input[type='range']::-moz-range-thumb { width: 9px; height: 9px; border: 4px sol
   .workspace-footer small { display: none; }
   .text-upload-button { max-width: 128px; text-align: right; }
 
-  .transport-dock { right: 8px; bottom: max(8px, env(safe-area-inset-bottom)); left: 8px; grid-template-columns: 1fr auto; min-height: 74px; padding: 8px; border-radius: 14px; }
-  .dock-track { display: none; }
+  .transport-dock { right: 8px; bottom: max(8px, env(safe-area-inset-bottom)); left: 8px; min-height: 74px; padding: 8px; border-radius: 14px; }
   .transport-controls { justify-self: start; gap: 4px; }
   .transport-button { width: 40px; height: 40px; }
   .play-button { width: 50px; height: 50px; }

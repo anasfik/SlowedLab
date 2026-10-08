@@ -482,10 +482,69 @@ button.hoverable:disabled, label.hoverable:has(input:disabled) { cursor: not-all
 .loop-icons .loop-button { min-height: 34px; padding: 0 9px; }
 
 /* Center progress: live time + seekable bar + total. */
-.dock-progress { display: flex; align-items: center; gap: 8px; min-width: min(300px, 28vw); margin-left: 8px; }
-.dock-seek { width: min(220px, 22vw); cursor: pointer; }
-.dock-seek:disabled { cursor: not-allowed; opacity: 0.4; }
-.dock-total { color: var(--text-muted); }
+.dock-time { white-space: nowrap; }
+
+/* The dock's top edge IS the progress bar: fill shows play position,
+   click/drag seeks, hover previews the target time. */
+.dock-edge-progress {
+  position: absolute;
+  top: -3px;
+  left: 18px;
+  right: 18px;
+  height: 6px;
+  border-radius: 99px;
+  background: var(--surface-strong);
+  cursor: pointer;
+  transition: height 180ms var(--ease), background 180ms var(--ease), box-shadow 180ms var(--ease);
+  touch-action: none;
+}
+.dock-edge-progress:hover, .dock-edge-progress:focus-visible, .dock-edge-progress.dragging {
+  height: 10px;
+  background: #2e3229;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+  outline: none;
+}
+.dock-edge-progress:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.dock-edge-progress.empty { cursor: default; }
+.dock-edge-fill {
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+  box-shadow: 0 0 12px rgba(255, 158, 74, 0.55);
+  transition: width 120ms linear;
+}
+.dock-edge-progress.dragging .dock-edge-fill { transition: none; }
+.dock-edge-knob {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border: 3px solid var(--accent);
+  border-radius: 50%;
+  background: #fff7ec;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+  transform: translate(-50%, -50%) scale(0);
+  transition: transform 180ms var(--ease);
+  pointer-events: none;
+}
+.dock-edge-progress:hover .dock-edge-knob, .dock-edge-progress:focus-visible .dock-edge-knob, .dock-edge-progress.dragging .dock-edge-knob {
+  transform: translate(-50%, -50%) scale(1);
+}
+.dock-edge-tip {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  padding: 5px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: rgba(20, 22, 17, 0.96);
+  color: var(--text);
+  font: 500 11px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  transform: translateX(-50%);
+  pointer-events: none;
+  animation: toast-in 140ms var(--ease) both;
+}
 
 .dock-tools { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
 .dock-tools > button { position: relative; display: flex; min-height: 44px; align-items: center; gap: 7px; padding: 0 12px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-soft); font-size: 11px; cursor: pointer; transition: background 200ms var(--ease), border-color 200ms var(--ease), color 200ms var(--ease), transform 200ms var(--ease), box-shadow 200ms var(--ease); }
@@ -700,7 +759,6 @@ input[type='range']::-moz-range-thumb { width: 9px; height: 9px; border: 4px sol
   .play-button { width: 50px; height: 50px; }
   .dock-time { display: none; }
   .loop-switch { margin-left: 2px; }
-  .dock-progress { display: none; }
   .nav-preview { display: none; }
   .waveform-hover-tip { display: none; }
   .session-restore { flex-direction: column; align-items: stretch; text-align: left; }

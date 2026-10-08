@@ -234,6 +234,12 @@ export default function App() {
   // queue (previous behaviour), 'one' replays the current track.
   const [loopMode, setLoopMode] = useState<'once' | 'all' | 'one'>('all');
   const [hoveredNav, setHoveredNav] = useState<'prev' | 'next' | null>(null);
+  // Top-edge seek bar: hover preview (x px + time) and in-drag position.
+  // Dragging only previews; the seek commits once on release so playback
+  // restarts a single time instead of once per pointermove.
+  const [edgeHover, setEdgeHover] = useState<{ x: number; time: number } | null>(null);
+  const [edgeDragPct, setEdgeDragPct] = useState<number | null>(null);
+  const edgeBarRef = useRef<HTMLDivElement>(null);
   // Previous session found in IndexedDB. We only list it — decoding happens
   // when the user clicks Restore, never automatically on reopen.
   const [sessionCache, setSessionCache] = useState<{ id: string; name: string; type: string }[]>([]);
@@ -1689,6 +1695,84 @@ export default function App() {
         {new URLSearchParams(window.location.search).get('audio-debug') === '1' && (
           <AudioOutputTest getContext={() => audioContextRef.current} stopPlayback={stopAudio} />
         )}
+        {(() => {
+          const total = (currentTrack?.duration || 0) / effects.playbackRate;
+          const pct = total > 0 ? Math.max(0, Math.min(1, audio.currentTime / total)) : 0;
+          const shown = edgeDragPct ?? pct;
+          const tip = edgeDragPct != null
+            ? { x: (edgeHover?.x ?? shown * (edgeBarRef.current?.clientWidth || 0)), time: edgeDragPct * total }
+            : edgeHover;
+          const pctFromClientX = (clientX: number) => {
+            const el = edgeBarRef.current;
+            if (!el) return 0;
+            const r = el.getBoundingClientRect();
+            return r.width > 0 ? Math.max(0, Math.min(1, (clientX - r.left) / r.width)) : 0;
+          };
+          const xFromClientX = (clientX: number) => {
+            const el = edgeBarRef.current;
+            if (!el) return 0;
+            return clientX - el.getBoundingClientRect().left;
+          };
+          return (
+            <div
+              ref={edgeBarRef}
+              className={`dock-edge-progress ${edgeDragPct != null ? 'dragging' : ''} ${currentTrack?.buffer ? '' : 'empty'}`}
+              role="slider"
+              tabIndex={currentTrack?.buffer ? 0 : -1}
+              aria-label="Seek through track"
+              aria-valuemin={0}
+              aria-valuemax={Math.round(total)}
+              aria-valuenow={Math.round(audio.currentTime)}
+              aria-valuetext={`${formatTime(audio.currentTime)} of ${formatTime(total)}`}
+              title={currentTrack?.buffer ? 'Click or drag to seek' : 'Load a track to seek'}
+              onPointerDown={(e) => {
+                if (!currentTrack?.buffer) return;
+                e.currentTarget.setPointerCapture(e.pointerId);
+                setEdgeDragPct(pctFromClientX(e.clientX));
+                setEdgeHover({ x: xFromClientX(e.clientX), time: pctFromClientX(e.clientX) * total });
+              }}
+              onPointerMove={(e) => {
+                if (!currentTrack?.buffer) return;
+                const p = pctFromClientX(e.clientX);
+                if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                  setEdgeDragPct(p);
+                  setEdgeHover({ x: xFromClientX(e.clientX), time: p * total });
+                } else {
+                  setEdgeHover({ x: xFromClientX(e.clientX), time: p * total });
+                }
+              }}
+              onPointerUp={(e) => {
+                if (edgeDragPct == null) return;
+                const p = pctFromClientX(e.clientX);
+                setEdgeDragPct(null);
+                setEdgeHover(null);
+                seekTo(p * total);
+              }}
+              onPointerLeave={() => { if (edgeDragPct == null) setEdgeHover(null); }}
+              onKeyDown={(e) => {
+                if (!currentTrack?.buffer) return;
+                if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                  e.preventDefault();
+                  seekTo(Math.max(0, Math.min(total, audio.currentTime + (e.key === 'ArrowLeft' ? -5 : 5))));
+                }
+                if (e.key === 'Home') { e.preventDefault(); seekTo(0); }
+                if (e.key === 'End') { e.preventDefault(); seekTo(total); }
+              }}
+            >
+              <div className="dock-edge-fill" style={{ width: `${shown * 100}%` }} />
+              <div className="dock-edge-knob" style={{ left: `${shown * 100}%` }} />
+              {tip && currentTrack?.buffer && (
+                <span
+                  className="dock-edge-tip"
+                  style={{ left: Math.max(30, Math.min(tip.x, (edgeBarRef.current?.clientWidth || 0) - 30)) }}
+                  aria-hidden="true"
+                >
+                  {formatTime(tip.time)}
+                </span>
+              )}
+            </div>
+          );
+        })()}
         <div className="transport-controls">
           <div
             className="transport-nav"
@@ -1721,23 +1805,7 @@ export default function App() {
               <span className="nav-preview" role="status">{nextTrack ? `${shortName(nextTrack.file.name)} ▶` : 'No next track'}</span>
             )}
           </div>
-          <div className="dock-progress" role="group" aria-label="Track progress">
-            <span className="dock-time">{formatTime(audio.currentTime)}</span>
-            <input
-              className="dock-seek"
-              type="range"
-              min={0}
-              max={Math.max(1, (currentTrack?.duration || 0) / effects.playbackRate)}
-              step={0.1}
-              value={Math.min(audio.currentTime, Math.max(1, (currentTrack?.duration || 0) / effects.playbackRate))}
-              onChange={(e) => seekTo(Number(e.target.value))}
-              disabled={!currentTrack?.buffer}
-              aria-label="Seek through track"
-              aria-valuetext={`${formatTime(audio.currentTime)} of ${formatTime((currentTrack?.duration || 0) / effects.playbackRate)}`}
-              title="Drag to seek"
-            />
-            <span className="dock-time dock-total">{formatTime((currentTrack?.duration || 0) / effects.playbackRate)}</span>
-          </div>
+          <span className="dock-time">{formatTime(audio.currentTime)} / {formatTime((currentTrack?.duration || 0) / effects.playbackRate)}</span>
         </div>
         <div className="dock-tools">
           <div className="loop-switch loop-icons" role="group" aria-label="Repeat mode">

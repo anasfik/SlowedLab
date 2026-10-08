@@ -110,9 +110,9 @@ button:disabled { cursor: not-allowed; opacity: 0.38; }
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 24px;
+  gap: 20px;
   min-height: 70px;
-  padding: 10px 12px 10px 16px;
+  padding: 10px 12px 10px 14px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: rgba(18, 20, 15, 0.88);
@@ -124,9 +124,15 @@ button:disabled { cursor: not-allowed; opacity: 0.38; }
   display: flex;
   align-items: center;
   gap: 11px;
+  padding: 6px 10px 6px 2px;
+  border-radius: var(--radius-sm);
   color: var(--text);
   text-decoration: none;
+  transition: background 200ms var(--ease), transform 200ms var(--ease);
 }
+
+.brand:hover { background: var(--surface-hover); transform: translateY(-1px); }
+.brand:active { transform: scale(0.98); }
 
 .brand-mark {
   display: grid;
@@ -143,15 +149,27 @@ button:disabled { cursor: not-allowed; opacity: 0.38; }
 .brand-copy strong { font-size: 15px; letter-spacing: -0.025em; }
 .brand-copy small { color: var(--text-muted); font-size: 10px; }
 
+/* Session pill is a button that opens the queue — full hover affordance. */
 .topbar-session {
   display: flex;
   min-width: 0;
+  max-width: 100%;
   align-items: center;
   justify-content: center;
+  justify-self: center;
   gap: 9px;
+  padding: 10px 16px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
   color: var(--text-soft);
   font-size: 12px;
+  cursor: pointer;
+  transition: background 200ms var(--ease), border-color 200ms var(--ease), color 200ms var(--ease), transform 200ms var(--ease);
 }
+
+.topbar-session:hover { border-color: var(--line); background: var(--surface-hover); color: var(--text); transform: translateY(-1px); }
+.topbar-session:active { transform: scale(0.98); }
 
 .session-dot {
   width: 7px;
@@ -163,9 +181,18 @@ button:disabled { cursor: not-allowed; opacity: 0.38; }
 
 .session-dot.playing { background: var(--success); box-shadow: 0 0 0 4px rgba(167, 198, 140, 0.09); }
 .topbar-track-name { max-width: 30vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.topbar-track-count { color: var(--text-muted); }
+.topbar-track-count { padding: 3px 8px; border-radius: 999px; background: var(--surface-strong); color: var(--text-muted); font: 500 10px/1 var(--font-mono); white-space: nowrap; }
+.topbar-session:hover .topbar-track-count { color: var(--text); }
 
 .topbar-actions { display: flex; align-items: center; gap: 8px; }
+
+.studio-action.active { border-color: rgba(255, 158, 74, 0.45); background: rgba(255, 158, 74, 0.1); color: var(--accent); }
+
+/* Shared hover lift for every clickable element. */
+.hoverable { cursor: pointer; transition: background 200ms var(--ease), border-color 200ms var(--ease), color 200ms var(--ease), transform 200ms var(--ease), box-shadow 200ms var(--ease); }
+button.hoverable:hover:not(:disabled), a.hoverable:hover, label.hoverable:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25); }
+button.hoverable:active:not(:disabled), a.hoverable:active, label.hoverable:active { transform: scale(0.97); box-shadow: none; }
+button.hoverable:disabled, label.hoverable:has(input:disabled) { cursor: not-allowed; transform: none; box-shadow: none; }
 
 .preset-menu { position: relative; }
 
@@ -346,7 +373,49 @@ button:disabled { cursor: not-allowed; opacity: 0.38; }
 .waveform-toolbar span:first-child { color: var(--text-soft); font: 500 10px/1 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; }
 .waveform-canvas { overflow: hidden; border-radius: var(--radius-md); background: var(--waveform-bg); }
 .waveform-canvas canvas { max-width: 100%; cursor: crosshair; touch-action: none; }
+/* Hover-to-preview: the wrapper tracks the pointer, the tip follows in m:ss. */
+.waveform-hover-zone { position: relative; cursor: crosshair; }
+.waveform-hover-zone:hover { box-shadow: inset 0 0 0 1px var(--line-strong); }
+.waveform-hover-tip {
+  position: absolute;
+  z-index: 3;
+  top: 10px;
+  padding: 5px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: rgba(20, 22, 17, 0.94);
+  color: var(--text);
+  font: 500 11px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  transform: translateX(-50%);
+  pointer-events: none;
+  animation: toast-in 140ms var(--ease) both;
+}
 .time-ruler { display: flex; justify-content: space-between; padding: 12px 10px 5px; color: var(--text-muted); font: 11px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* Click-to-restore session card (empty workspace + queue drawer). */
+.session-restore {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 0 0 12px;
+  padding: 13px 13px 13px 16px;
+  border: 1px solid rgba(255, 158, 74, 0.3);
+  border-radius: var(--radius-md);
+  background: rgba(255, 158, 74, 0.06);
+  animation: source-in 220ms var(--ease) both;
+}
+.session-restore > div { display: grid; min-width: 0; gap: 3px; }
+.session-restore strong { font-size: 12px; }
+.session-restore small { overflow: hidden; color: var(--text-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.restore-button { flex: 0 0 auto; min-height: 42px; padding: 0 16px; border: 0; border-radius: var(--radius-sm); background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 700; cursor: pointer; }
+.restore-button:hover:not(:disabled) { background: var(--accent-hover); }
+.restore-button:disabled { opacity: 0.6; cursor: wait; }
+.queue-restore { display: grid; gap: 10px; margin: 12px 12px 0; padding: 13px; border: 1px solid rgba(255, 158, 74, 0.3); border-radius: var(--radius-sm); background: rgba(255, 158, 74, 0.06); }
+.queue-restore strong { display: block; font-size: 11px; }
+.queue-restore small { display: block; margin-top: 3px; color: var(--text-muted); font-size: 10px; }
 
 .workspace-footer { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 22px 4px 0; }
 .workspace-footer > div { display: flex; align-items: center; gap: 10px; }
@@ -354,8 +423,8 @@ button:disabled { cursor: not-allowed; opacity: 0.38; }
 .workspace-footer strong { font-size: 12px; }
 .workspace-footer small { color: var(--text-muted); font-size: 10px; }
 .privacy-mark { padding: 6px 8px; border-radius: 7px; background: rgba(167, 198, 140, 0.12); color: var(--success); font: 9px/1 var(--font-mono); text-transform: uppercase; }
-.text-upload-button { position: relative; display: flex; align-items: center; gap: 8px; overflow: hidden; color: var(--text-soft); font-size: 12px; }
-.text-upload-button:hover { color: var(--text); }
+.text-upload-button { position: relative; display: flex; align-items: center; gap: 8px; overflow: hidden; padding: 10px 14px; border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--text-soft); font-size: 12px; cursor: pointer; transition: background 200ms var(--ease), border-color 200ms var(--ease), color 200ms var(--ease), transform 200ms var(--ease); }
+.text-upload-button:hover { border-color: var(--line); background: var(--surface-hover); color: var(--text); transform: translateY(-1px); }
 
 .drop-overlay {
   position: fixed;
@@ -398,19 +467,54 @@ button:disabled { cursor: not-allowed; opacity: 0.38; }
 .dock-art img { display: block; width: 27px; height: 27px; }
 .dock-track p { display: grid; min-width: 0; gap: 2px; margin: 0; }
 .dock-track strong { max-width: 26vw; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.dock-track small { color: var(--text-muted); font-size: 10px; }
+.dock-track small { overflow: hidden; color: var(--text-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .transport-controls { display: flex; align-items: center; gap: 7px; }
-.transport-button, .play-button { display: grid; width: 44px; height: 44px; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--text-soft); transition: background 200ms var(--ease), color 200ms var(--ease), transform 200ms var(--ease); }
-.transport-button:hover { background: var(--surface-strong); color: var(--text); }
+.transport-button, .play-button { display: grid; width: 44px; height: 44px; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--text-soft); cursor: pointer; transition: background 200ms var(--ease), color 200ms var(--ease), transform 200ms var(--ease), box-shadow 200ms var(--ease); }
+.transport-button:hover:not(:disabled) { background: var(--surface-strong); color: var(--text); transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3); }
 .play-button { width: 56px; height: 56px; margin: 0 2px; background: var(--accent); color: var(--accent-ink); font-size: 20px; box-shadow: inset 0 1px rgba(255, 255, 255, 0.45); }
-.play-button:hover { background: var(--accent-hover); transform: scale(1.04); }
-.transport-button:active, .play-button:active { transform: scale(0.94); }
+.play-button:hover:not(:disabled) { background: var(--accent-hover); transform: scale(1.05) translateY(-1px); box-shadow: 0 8px 24px rgba(255, 158, 74, 0.3); }
+.transport-button:active:not(:disabled), .play-button:active:not(:disabled) { transform: scale(0.94); }
 .play-glyph { transform: translateX(1px); }
 .dock-time { min-width: 44px; margin-left: 5px; color: var(--text-muted); font: 10px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* Prev/next hover preview — shows the matching track before clicking. */
+.transport-nav { position: relative; display: grid; place-items: center; }
+.nav-preview {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  max-width: 220px;
+  overflow: hidden;
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: #1e211b;
+  color: var(--text);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  transform: translateX(-50%);
+  animation: toast-in 180ms var(--ease) both;
+  pointer-events: none;
+}
+
+/* Play-once / queue / replay segmented control on the audio bar. */
+.loop-switch { display: flex; align-items: center; gap: 2px; margin-left: 6px; padding: 3px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255, 255, 255, 0.02); }
+.loop-button { display: inline-flex; align-items: center; gap: 5px; min-height: 32px; padding: 0 10px; border: 0; border-radius: 999px; background: transparent; color: var(--text-muted); font-size: 10px; font-weight: 600; cursor: pointer; }
+.loop-button svg { font-size: 13px; }
+.loop-button:hover { background: var(--surface-strong); color: var(--text); }
+.loop-button.active { background: var(--accent); color: var(--accent-ink); }
+.loop-button.active:hover { background: var(--accent-hover); color: var(--accent-ink); }
+
 .dock-tools { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
-.dock-tools > button { position: relative; display: flex; min-height: 44px; align-items: center; gap: 7px; padding: 0 12px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-soft); font-size: 11px; }
-.dock-tools > button:hover, .dock-tools > button.active { border-color: var(--line); background: var(--surface-strong); color: var(--text); }
+.dock-tools > button { position: relative; display: flex; min-height: 44px; align-items: center; gap: 7px; padding: 0 12px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-soft); font-size: 11px; cursor: pointer; transition: background 200ms var(--ease), border-color 200ms var(--ease), color 200ms var(--ease), transform 200ms var(--ease), box-shadow 200ms var(--ease); }
+.dock-tools > button:hover:not(:disabled), .dock-tools > button.active { border-color: var(--line); background: var(--surface-strong); color: var(--text); transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28); }
 .dock-tools b { display: grid; min-width: 17px; height: 17px; place-items: center; border-radius: 99px; background: var(--accent); color: var(--accent-ink); font: 500 9px/1 var(--font-mono); }
+
+/* Download lives on the audio bar now — primary action styling. */
+.dock-download { border-color: rgba(255, 158, 74, 0.4) !important; background: rgba(255, 158, 74, 0.1) !important; color: var(--accent) !important; font-weight: 700; }
+.dock-download:hover:not(:disabled) { background: var(--accent) !important; border-color: transparent !important; color: var(--accent-ink) !important; }
 .volume-control { display: flex; min-height: 44px; align-items: center; gap: 6px; padding: 0 8px; color: var(--text-muted); }
 .volume-control input { width: 84px; }
 .volume-mute { display: grid; width: 32px; height: 32px; flex: 0 0 auto; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--text-muted); transition: background 200ms var(--ease), color 200ms var(--ease); }
@@ -447,8 +551,12 @@ input[type='range']::-moz-range-thumb { width: 9px; height: 9px; border: 4px sol
 .drawer-heading .overline { margin-bottom: 7px; }
 .drawer-heading h2 { margin: 0; font-size: 23px; letter-spacing: -0.04em; }
 .drawer-heading h2 span { margin-left: 4px; color: var(--text-muted); font: 400 12px/1 var(--font-mono); }
-.icon-button { display: grid; width: 44px; height: 44px; flex: 0 0 auto; place-items: center; border: 1px solid var(--line); border-radius: 50%; background: transparent; color: var(--text-soft); }
-.icon-button:hover { border-color: var(--line-strong); background: var(--surface-hover); color: var(--text); }
+.icon-button { display: grid; width: 44px; height: 44px; flex: 0 0 auto; place-items: center; border: 1px solid var(--line); border-radius: 50%; background: transparent; color: var(--text-soft); cursor: pointer; transition: background 200ms var(--ease), border-color 200ms var(--ease), color 200ms var(--ease), transform 200ms var(--ease); }
+.icon-button:hover { border-color: var(--line-strong); background: var(--surface-hover); color: var(--text); transform: translateY(-1px); }
+.queue-item, .preset-option, .queue-select, .queue-remove, .saved-preset-name { cursor: pointer; }
+.queue-select:hover strong { color: var(--accent); }
+.link-row button, .link-download, .secondary-button, .preset-save button { cursor: pointer; transition: background 200ms var(--ease), color 200ms var(--ease), transform 200ms var(--ease); }
+.link-row button:hover:not(:disabled), .link-download:hover, .secondary-button:hover, .preset-save button:hover { transform: translateY(-1px); }
 .drawer-scroll { padding: 20px 20px 28px; overflow-y: auto; }
 
 .session-summary { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; padding: 14px; border-radius: var(--radius-md); background: var(--surface); }
@@ -575,8 +683,9 @@ input[type='range']::-moz-range-thumb { width: 9px; height: 9px; border: 4px sol
   .topbar-actions { gap: 5px; }
   .preset-trigger { min-width: 0; max-width: 118px; padding: 0 10px; }
   .preset-trigger > svg:first-child { display: none; }
-  .topbar-button { width: 44px; padding: 0; }
+  .topbar-button { width: 44px; padding: 0; justify-content: center; }
   .topbar-button span { display: none; }
+  .studio-action { width: 44px; }
   .utility-actions { display: none; }
   .preset-dropdown { position: fixed; top: 78px; right: 8px; left: 8px; width: auto; }
 
@@ -608,12 +717,21 @@ input[type='range']::-moz-range-thumb { width: 9px; height: 9px; border: 4px sol
 
   .transport-dock { right: 8px; bottom: max(8px, env(safe-area-inset-bottom)); left: 8px; grid-template-columns: 1fr auto; min-height: 74px; padding: 8px; border-radius: 14px; }
   .dock-track { display: none; }
-  .transport-controls { justify-self: start; }
+  .transport-controls { justify-self: start; gap: 4px; }
   .transport-button { width: 40px; height: 40px; }
   .play-button { width: 50px; height: 50px; }
   .dock-time { display: none; }
+  .loop-switch { margin-left: 2px; }
+  .loop-button span { display: none; }
+  .loop-button { padding: 0 9px; }
+  .nav-preview { display: none; }
+  .waveform-hover-tip { display: none; }
+  .session-restore { flex-direction: column; align-items: stretch; text-align: left; }
+  .restore-button { width: 100%; }
   .dock-tools > button { width: 46px; padding: 0; justify-content: center; }
   .dock-tools > button span { display: none; }
+  .dock-tools > button.dock-download { width: auto; padding: 0 12px; }
+  .dock-tools > button.dock-download span { display: inline; }
   .dock-tools b { position: absolute; top: 3px; right: 2px; }
 
   .studio-drawer { top: 8px; right: 8px; bottom: 8px; width: calc(100vw - 16px); border-radius: var(--radius-md); }

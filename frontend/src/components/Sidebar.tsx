@@ -61,10 +61,10 @@ const Sidebar: React.FC<SidebarProps> = ({
         <aside ref={panelRef} tabIndex={-1} className="studio-drawer effects-drawer" role="dialog" aria-modal="true" aria-labelledby="effects-title">
             <header className="drawer-heading">
                 <div>
-                    <p className="overline">Sound controls</p>
+                    <p className="overline">Studio</p>
                     <h2 id="effects-title">Shape your mix</h2>
                 </div>
-                <button className="icon-button" onClick={onClose} aria-label="Close sound controls"><FiX /></button>
+                <button className="icon-button hoverable" onClick={onClose} aria-label="Close studio" title="Close studio"><FiX /></button>
             </header>
 
             <div className="drawer-scroll">

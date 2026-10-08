@@ -9,8 +9,8 @@ import {
   FiPlay, FiPause, FiSkipBack, FiSkipForward, FiMusic,
   FiActivity, FiVolume2, FiCpu,
   FiHeadphones, FiStar, FiZap as FiBolt, FiDroplet as FiDiamond, FiSliders,
-  FiSettings, FiX, FiList, FiTrash2, FiUploadCloud, FiFolder, FiLink,
-  FiVolumeX, FiInfo
+  FiX, FiList, FiTrash2, FiUploadCloud, FiFolder, FiLink,
+  FiVolumeX, FiInfo, FiDownload, FiRepeat, FiRotateCcw
 } from 'react-icons/fi';
 import Topbar from './components/Topbar.tsx';
 import Sidebar from './components/Sidebar.tsx';
@@ -229,6 +229,15 @@ export default function App() {
   const [dropNotice, setDropNotice] = useState<string | null>(null);
   const [pendingClear, setPendingClear] = useState(false);
   const [muted, setMuted] = useState(false);
+  // Playback repeat behaviour for the transport dock.
+  // 'once' stops at the end of the current track, 'all' continues through the
+  // queue (previous behaviour), 'one' replays the current track.
+  const [loopMode, setLoopMode] = useState<'once' | 'all' | 'one'>('all');
+  const [hoveredNav, setHoveredNav] = useState<'prev' | 'next' | null>(null);
+  // Previous session found in IndexedDB. We only list it — decoding happens
+  // when the user clicks Restore, never automatically on reopen.
+  const [sessionCache, setSessionCache] = useState<{ id: string; name: string; type: string }[]>([]);
+  const [isSessionRestoring, setIsSessionRestoring] = useState(false);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
@@ -263,6 +272,7 @@ export default function App() {
   const audioStateRef = useRef<AudioState | null>(null);
   const playingRef = useRef(false);
   const currentTrackRef = useRef<AudioFile | null>(null);
+  const loopModeRef = useRef<'once' | 'all' | 'one'>('all');
   const playAudioRef = useRef<() => void>(() => { });
   const stopAudioRef = useRef<() => void>(() => { });
 
@@ -397,6 +407,7 @@ export default function App() {
       const db = await openDB();
       const tx = db.transaction(DB_CONFIG.store, 'readwrite');
       tx.objectStore(DB_CONFIG.store).clear();
+      setSessionCache([]);
     } catch (err) {
       console.warn('Failed to clear cache', err);
     }
@@ -419,32 +430,46 @@ export default function App() {
     }
   }, [openDB]);
 
-  const restoreTracksFromDB = useCallback(async () => {
-    if (!audioContextRef.current) return;
+  // Session audio is never decoded automatically on reopen. We only list what
+  // is cached; the user clicks Restore to decode (which can take seconds for
+  // large files and used to freeze the first paint).
+  const checkSessionCache = useCallback(async () => {
     try {
       const db = await openDB();
-      const tx = db.transaction(DB_CONFIG.store, 'readonly');
-      const store = tx.objectStore(DB_CONFIG.store);
-      const request = store.getAll();
-      const cachedTracks: any[] = await new Promise((resolve, reject) => {
-        request.onsuccess = () => resolve(request.result as any[]);
-        request.onerror = () => reject(request.error);
-      });
-
+      const cachedTracks = await readAllCached(db);
       if (!cachedTracks.length) return;
+      const usable = [...cachedTracks]
+        .sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0))
+        .slice(0, MAX_CACHED_TRACKS);
+      setSessionCache(usable.map(t => ({ id: t.id, name: t.name, type: t.type })));
+    } catch (err) {
+      console.warn('Failed to list cached tracks', err);
+    }
+  }, [openDB, readAllCached]);
 
-      // Restore the most recent tracks only. Cold-starting a session that
-      // decodes a dozen 200MB files is how you get a multi-second freeze.
-      const usable = cachedTracks
+  const restoreSessionOnDemand = useCallback(async () => {
+    if (!audioContextRef.current || isSessionRestoring) return;
+    setIsSessionRestoring(true);
+    try {
+      const db = await openDB();
+      const cachedTracks = await readAllCached(db);
+      if (!cachedTracks.length) {
+        setSessionCache([]);
+        return;
+      }
+      const usable = [...cachedTracks]
         .sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0))
         .slice(0, MAX_CACHED_TRACKS);
 
       const restored: AudioFile[] = [];
       for (const cached of usable) {
+        setLoadingProgress({ fileName: cached.name, progress: 0 });
         const blob = new Blob([cached.data], { type: cached.type });
         const restoredFile = new File([blob], cached.name, { type: cached.type });
         const arrayBuffer: ArrayBuffer = cached.data instanceof ArrayBuffer ? cached.data : await cached.data.arrayBuffer();
+        setLoadingProgress({ fileName: cached.name, progress: 50 });
         const buffer = await audioContextRef.current.decodeAudioData(arrayBuffer.slice(0));
+        setLoadingProgress({ fileName: cached.name, progress: 100 });
         if (DEBUG_AUDIO) {
           console.log(
             `[SlowedLab][decode:cache] name="${cached.name}" duration=${buffer.duration.toFixed(2)}s ` +
@@ -466,12 +491,15 @@ export default function App() {
         currentTrackIndex: 0,
         currentTime: 0,
       }));
-
-      // Waveform is handled by the Waveform component
+      setSessionCache([]);
     } catch (err) {
       console.warn('Failed to restore tracks', err);
+      setCacheNotice('Could not restore your last session. Try adding the files again.');
+    } finally {
+      setLoadingProgress(null);
+      setIsSessionRestoring(false);
     }
-  }, [openDB]);
+  }, [openDB, readAllCached, isSessionRestoring]);
 
   const autoPlayFirst = useCallback(() => {
     pauseTimeRef.current = 0;
@@ -494,6 +522,10 @@ export default function App() {
     playingRef.current = audio.isPlaying;
     currentTrackRef.current = currentTrack;
   }, [audio, currentTrack]);
+
+  useEffect(() => {
+    loopModeRef.current = loopMode;
+  }, [loopMode]);
 
   // Initialize Audio Context
   useEffect(() => {
@@ -526,7 +558,8 @@ export default function App() {
     };
   }, []);
 
-  // Restore cached session (presets, loop, history, tracks)
+  // Restore cached session (presets, history). Track audio stays in IndexedDB
+  // until the user clicks Restore — see checkSessionCache above.
   useEffect(() => {
     const cachedEffects = readStored(STORAGE_KEYS.effects);
     const cachedPreset = readStored(STORAGE_KEYS.preset);
@@ -560,8 +593,8 @@ export default function App() {
       }
     }
 
-    restoreTracksFromDB().finally(() => setIsRestoring(false));
-  }, [restoreTracksFromDB]);
+    checkSessionCache().finally(() => setIsRestoring(false));
+  }, [checkSessionCache]);
 
   // localStorage throws in Safari private mode and when storage is disabled.
   // Reads must degrade to defaults instead of aborting session restore.
@@ -797,6 +830,20 @@ export default function App() {
         sourceNodeRef.current = null;
       }
 
+      const mode = loopModeRef.current;
+      if (mode === 'one') {
+        // Replay the same track.
+        pauseTimeRef.current = 0;
+        pauseTimelineRef.current = 0;
+        bufferPositionRef.current = 0;
+        setAudio(prev => ({ ...prev, currentTime: 0, isPlaying: false }));
+        setTimeout(() => playAudioRef.current?.(), 100);
+        return;
+      }
+      if (mode === 'once') {
+        stopAudioRef.current?.();
+        return;
+      }
       const nextIndex = state.currentTrackIndex + 1;
       const nextTrack = state.playlist[nextIndex];
       if (nextTrack?.buffer) {
@@ -961,7 +1008,23 @@ export default function App() {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
+      const mode = loopModeRef.current;
       const state = audioStateRef.current;
+      if (mode === 'one' && state) {
+        pauseTimeRef.current = 0;
+        pauseTimelineRef.current = 0;
+        bufferPositionRef.current = 0;
+        setAudio(prev => ({ ...prev, currentTime: 0, isPlaying: false }));
+        setTimeout(() => playAudioRef.current?.(), 80);
+        return;
+      }
+      if (mode === 'once') {
+        setAudio(prev => ({ ...prev, isPlaying: false, currentTime: 0 }));
+        pauseTimeRef.current = 0;
+        pauseTimelineRef.current = 0;
+        bufferPositionRef.current = 0;
+        return;
+      }
       const nextIndex = state ? state.currentTrackIndex + 1 : -1;
       const nextTrack = state?.playlist[nextIndex];
       if (nextTrack?.buffer) {
@@ -1462,6 +1525,9 @@ export default function App() {
 
 
   const activePresetLabel = selectedPreset === 'Custom' ? 'Custom Blend' : selectedPreset;
+  const prevTrack = audio.currentTrackIndex > 0 ? audio.playlist[audio.currentTrackIndex - 1] : null;
+  const nextTrack = audio.currentTrackIndex < audio.playlist.length - 1 ? audio.playlist[audio.currentTrackIndex + 1] : null;
+  const shortName = (name: string) => name.replace(/\.[^/.]+$/, '').slice(0, 32);
 
   return (
     <div className="app">
@@ -1477,11 +1543,11 @@ export default function App() {
         setPresetNameInput={setPresetNameInput}
         saveUserPreset={saveUserPreset}
         handleFileUpload={handleFileUpload}
-        exportSelection={exportSelection}
-        isExporting={isExporting}
         setShowBugModal={setShowBugModal}
         setBugMessage={setBugMessage}
-        currentTrack={currentTrack}
+        isStudioOpen={isSidebarOpen}
+        onOpenStudio={() => setIsSidebarOpen(true)}
+        onOpenQueue={() => setIsPlaylistOpen(true)}
       />
 
       <main
@@ -1535,7 +1601,24 @@ export default function App() {
             <div className="empty-copy">
               <p className="overline">Private browser studio</p>
               <h1>Hear your track<br /><em>another way.</em></h1>
-              <p>Upload your audio — or paste a SoundCloud link to play it here. Slow it down, add reverb, shape tone, then export a finished WAV.</p>
+              <p>Upload your audio — or paste a SoundCloud link to play it here. Slow it down, add reverb, shape tone, then download a finished WAV.</p>
+
+              {sessionCache.length > 0 && audio.playlist.length === 0 && (
+                <div className="session-restore" role="status">
+                  <div>
+                    <strong>Last session found — {sessionCache.length} track{sessionCache.length === 1 ? '' : 's'}</strong>
+                    <small>{sessionCache.slice(0, 2).map(t => t.name.replace(/\.[^/.]+$/, '')).join(' · ')}{sessionCache.length > 2 ? ` · +${sessionCache.length - 2} more` : ''}</small>
+                  </div>
+                  <button
+                    className="restore-button hoverable"
+                    onClick={() => void restoreSessionOnDemand()}
+                    disabled={isSessionRestoring}
+                    title="Load your saved tracks into the queue"
+                  >
+                    {isSessionRestoring ? 'Loading…' : `Restore ${sessionCache.length === 1 ? 'track' : 'tracks'}`}
+                  </button>
+                </div>
+              )}
 
               <div className="source-picker">
                 <div
@@ -1579,9 +1662,9 @@ export default function App() {
 
                 {importSource === 'device' ? (
                   <div className="source-panel device-source" id="device-source-panel" role="tabpanel" aria-labelledby="device-source-tab">
-                    <label className="device-dropzone">
+                    <label className="device-dropzone hoverable">
                       <span className="device-upload-icon"><FiUploadCloud aria-hidden="true" /></span>
-                      <span><strong>{isRestoring ? 'Restoring your session…' : 'Choose audio files'}</strong><small>or drop them anywhere on this screen</small></span>
+                      <span><strong>{isRestoring ? 'Checking last session…' : 'Choose audio files'}</strong><small>or drop them anywhere on this screen</small></span>
                       <input type="file" accept="audio/*" onChange={handleFileUpload} multiple disabled={isRestoring} />
                     </label>
                     <p><span>MP3, WAV, FLAC, OGG, AAC</span><span>Up to 200 MB each</span></p>
@@ -1611,27 +1694,79 @@ export default function App() {
         )}
         <div className="dock-track">
           <span className="dock-art"><img src="/logo-mark.svg" alt="" /></span>
-          <p><strong>{currentTrack ? currentTrack.file.name.replace(/\.[^/.]+$/, '') : 'No track selected'}</strong><small>{currentTrack ? activePresetLabel : 'Add audio to begin'}</small></p>
+          <p><strong>{currentTrack ? currentTrack.file.name.replace(/\.[^/.]+$/, '') : 'No track selected'}</strong><small>{currentTrack ? `${activePresetLabel} · ${formatTime(audio.currentTime)} / ${formatTime((currentTrack.duration || 0) / effects.playbackRate)}` : 'Add audio to begin'}</small></p>
         </div>
         <div className="transport-controls">
-          <button className="transport-button" onClick={playPreviousTrack} disabled={!currentTrack || audio.currentTrackIndex === 0} aria-label="Previous track">
-            <FiSkipBack />
-          </button>
-          <button className="play-button" onClick={togglePlayback} disabled={!currentTrack?.buffer || currentTrack.isLoading} aria-label={audio.isPlaying ? 'Pause' : 'Play'}>
+          <div
+            className="transport-nav"
+            onMouseEnter={() => setHoveredNav('prev')}
+            onMouseLeave={() => setHoveredNav(null)}
+            onFocus={() => setHoveredNav('prev')}
+            onBlur={() => setHoveredNav(null)}
+          >
+            <button className="transport-button hoverable" onClick={playPreviousTrack} disabled={!currentTrack || audio.currentTrackIndex === 0} aria-label={prevTrack ? `Previous track: ${shortName(prevTrack.file.name)}` : 'Previous track'} title={prevTrack ? `Previous: ${shortName(prevTrack.file.name)}` : 'No previous track'}>
+              <FiSkipBack />
+            </button>
+            {hoveredNav === 'prev' && (
+              <span className="nav-preview" role="status">{prevTrack ? `◀ ${shortName(prevTrack.file.name)}` : 'No previous track'}</span>
+            )}
+          </div>
+          <button className="play-button hoverable" onClick={togglePlayback} disabled={!currentTrack?.buffer || currentTrack.isLoading} aria-label={audio.isPlaying ? 'Pause' : 'Play'} title={audio.isPlaying ? 'Pause (Space)' : 'Play (Space)'}>
             {audio.isPlaying ? <FiPause /> : <FiPlay className="play-glyph" />}
           </button>
-          <button className="transport-button" onClick={playNextTrack} disabled={!currentTrack || audio.currentTrackIndex >= audio.playlist.length - 1} aria-label="Next track">
-            <FiSkipForward />
-          </button>
+          <div
+            className="transport-nav"
+            onMouseEnter={() => setHoveredNav('next')}
+            onMouseLeave={() => setHoveredNav(null)}
+            onFocus={() => setHoveredNav('next')}
+            onBlur={() => setHoveredNav(null)}
+          >
+            <button className="transport-button hoverable" onClick={playNextTrack} disabled={!currentTrack || audio.currentTrackIndex >= audio.playlist.length - 1} aria-label={nextTrack ? `Next track: ${shortName(nextTrack.file.name)}` : 'Next track'} title={nextTrack ? `Next: ${shortName(nextTrack.file.name)}` : 'No next track'}>
+              <FiSkipForward />
+            </button>
+            {hoveredNav === 'next' && (
+              <span className="nav-preview" role="status">{nextTrack ? `${shortName(nextTrack.file.name)} ▶` : 'No next track'}</span>
+            )}
+          </div>
+          <div className="loop-switch" role="group" aria-label="Repeat mode">
+            <button
+              className={`loop-button hoverable ${loopMode === 'once' ? 'active' : ''}`}
+              onClick={() => setLoopMode('once')}
+              aria-pressed={loopMode === 'once'}
+              title="Play once — stop when this track ends"
+              aria-label="Play once"
+            >
+              <FiPlay aria-hidden="true" /><span>Once</span>
+            </button>
+            <button
+              className={`loop-button hoverable ${loopMode === 'all' ? 'active' : ''}`}
+              onClick={() => setLoopMode('all')}
+              aria-pressed={loopMode === 'all'}
+              title="Play through the whole queue"
+              aria-label="Repeat queue"
+            >
+              <FiRepeat aria-hidden="true" /><span>Queue</span>
+            </button>
+            <button
+              className={`loop-button hoverable ${loopMode === 'one' ? 'active' : ''}`}
+              onClick={() => setLoopMode('one')}
+              aria-pressed={loopMode === 'one'}
+              title="Replay — loop the current track"
+              aria-label="Replay track"
+            >
+              <FiRotateCcw aria-hidden="true" /><span>Replay</span>
+            </button>
+          </div>
           <span className="dock-time">{formatTime(audio.currentTime)}</span>
         </div>
         <div className="dock-tools">
           <div className="volume-control">
             <button
-              className="volume-mute"
+              className="volume-mute hoverable"
               onClick={() => setMuted(m => !m)}
               aria-label={muted ? 'Unmute' : 'Mute'}
               aria-pressed={muted}
+              title={muted ? 'Unmute' : 'Mute'}
             >
               {muted || volume === 0 ? <FiVolumeX aria-hidden="true" /> : <FiVolume2 aria-hidden="true" />}
             </button>
@@ -1644,13 +1779,20 @@ export default function App() {
               onChange={(e) => { setMuted(false); setVolume(Number(e.target.value)); }}
               aria-label="Volume"
               aria-valuetext={`${Math.round((muted ? 0 : volume) * 100)} percent`}
+              title={`Volume ${Math.round((muted ? 0 : volume) * 100)}%`}
             />
             <output className="volume-readout" aria-hidden="true">{Math.round((muted ? 0 : volume) * 100)}</output>
           </div>
-          <button className={isSidebarOpen ? 'active' : ''} onClick={() => setIsSidebarOpen(true)} aria-label="Open sound controls" aria-expanded={isSidebarOpen} aria-controls="effects-title">
-            <FiSettings /><span>Sound</span>
+          <button
+            className="dock-download hoverable"
+            onClick={exportSelection}
+            disabled={!currentTrack?.buffer || isExporting}
+            title={currentTrack?.buffer ? 'Download this mix as WAV' : 'Load a track to enable download'}
+            aria-label="Download mix as WAV"
+          >
+            <FiDownload aria-hidden="true" /><span>{isExporting ? 'Rendering…' : 'Download'}</span>
           </button>
-          <button className={isPlaylistOpen ? 'active' : ''} onClick={() => setIsPlaylistOpen(true)} aria-label="Open queue" aria-expanded={isPlaylistOpen} aria-controls="queue-title">
+          <button className={`hoverable ${isPlaylistOpen ? 'active' : ''}`} onClick={() => setIsPlaylistOpen(true)} aria-label="Open queue" aria-expanded={isPlaylistOpen} aria-controls="queue-title" title={`Open queue (${audio.playlist.length})`}>
             <FiList /><span>Queue</span>{audio.playlist.length > 0 && <b>{audio.playlist.length}</b>}
           </button>
         </div>
@@ -1683,12 +1825,23 @@ export default function App() {
             <button className="icon-button" onClick={() => setIsPlaylistOpen(false)} aria-label="Close queue"><FiX /></button>
           </header>
           <div className="queue-actions">
-            <label className="secondary-button"><FiUploadCloud /> Add tracks<input type="file" accept="audio/*" onChange={handleFileUpload} multiple /></label>
-            <button className="text-button danger" onClick={() => setPendingClear(true)} disabled={!audio.playlist.length}><FiTrash2 /> Clear</button>
+            <label className="secondary-button hoverable" title="Add audio files to the queue"><FiUploadCloud /> Add tracks<input type="file" accept="audio/*" onChange={handleFileUpload} multiple /></label>
+            <button className="text-button danger hoverable" onClick={() => setPendingClear(true)} disabled={!audio.playlist.length} title="Remove all tracks"><FiTrash2 /> Clear</button>
           </div>
           <div className="queue-link">
             <LinkImport compact onFile={handleRemoteFile} />
           </div>
+          {sessionCache.length > 0 && audio.playlist.length === 0 && (
+            <div className="queue-restore">
+              <div>
+                <strong>{sessionCache.length} saved track{sessionCache.length === 1 ? '' : 's'} from last time</strong>
+                <small>Nothing loads until you ask — click to decode.</small>
+              </div>
+              <button className="secondary-button hoverable" onClick={() => void restoreSessionOnDemand()} disabled={isSessionRestoring}>
+                {isSessionRestoring ? 'Loading…' : 'Restore session'}
+              </button>
+            </div>
+          )}
           {pendingClear && (
             <div className="queue-confirm" role="alertdialog" aria-label="Confirm clearing the queue">
               <p>Remove all {audio.playlist.length} track{audio.playlist.length === 1 ? '' : 's'} from this session?</p>
@@ -1700,15 +1853,16 @@ export default function App() {
           )}
           <div className="queue-list">
             {audio.playlist.map((track, index) => (
-              <article className={`queue-item ${index === audio.currentTrackIndex ? 'active' : ''}`} key={track.id}>
-                <button className="queue-select" onClick={() => playTrack(index)}>
+              <article className={`queue-item ${index === audio.currentTrackIndex ? 'active' : ''}`} key={track.id} title={index === audio.currentTrackIndex ? 'Now editing' : `Play ${track.file.name.replace(/\.[^/.]+$/, '')}`}>
+                <button className="queue-select hoverable" onClick={() => playTrack(index)} title={`Play ${track.file.name.replace(/\.[^/.]+$/, '')}`}>
                   <span className="queue-index">{index === audio.currentTrackIndex && audio.isPlaying ? <FiActivity /> : String(index + 1).padStart(2, '0')}</span>
                   <span><strong>{track.file.name.replace(/\.[^/.]+$/, '')}</strong><small>{track.isLoading ? 'Preparing audio…' : formatTime(track.duration)}</small></span>
                 </button>
-                <button className="queue-remove" onClick={() => removeTrack(track.id)} aria-label={`Remove ${track.file.name}`}><FiX /></button>
+                <button className="queue-remove hoverable" onClick={() => removeTrack(track.id)} aria-label={`Remove ${track.file.name}`} title={`Remove ${track.file.name.replace(/\.[^/.]+$/, '')}`}><FiX /></button>
               </article>
             ))}
-            {!audio.playlist.length && <div className="queue-empty"><FiMusic /><strong>Queue is empty</strong><span>Add tracks to keep listening.</span></div>}
+            {!audio.playlist.length && sessionCache.length === 0 && <div className="queue-empty"><FiMusic /><strong>Queue is empty</strong><span>Add tracks to keep listening.</span></div>}
+            {!audio.playlist.length && sessionCache.length > 0 && <div className="queue-empty"><FiMusic /><strong>Queue is empty</strong><span>Restore your last session above, or add fresh tracks.</span></div>}
           </div>
         </aside>
       )}

@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    FiCheck, FiChevronDown, FiDownload, FiGithub, FiHeart, FiMusic,
-    FiSave, FiSearch, FiUploadCloud
+    FiCheck, FiChevronDown, FiGithub, FiHeart, FiMusic,
+    FiSave, FiSearch, FiSliders, FiUploadCloud
 } from 'react-icons/fi';
 import { RiBugLine } from 'react-icons/ri';
-import { AudioFile, AudioState, IconRenderer, Preset, UserPreset } from '../App';
+import { AudioState, IconRenderer, Preset, UserPreset } from '../App';
 
 interface TopbarProps {
     currentTrackName: string;
@@ -17,11 +17,11 @@ interface TopbarProps {
     setPresetNameInput: (name: string) => void;
     saveUserPreset: () => void;
     handleFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
-    exportSelection: () => void;
-    isExporting: boolean;
     setShowBugModal: (show: boolean) => void;
     setBugMessage: (msg: string | null) => void;
-    currentTrack: AudioFile | null;
+    isStudioOpen: boolean;
+    onOpenStudio: () => void;
+    onOpenQueue: () => void;
 }
 
 const Topbar: React.FC<TopbarProps> = ({
@@ -35,11 +35,11 @@ const Topbar: React.FC<TopbarProps> = ({
     setPresetNameInput,
     saveUserPreset,
     handleFileUpload,
-    exportSelection,
-    isExporting,
     setShowBugModal,
     setBugMessage,
-    currentTrack,
+    isStudioOpen,
+    onOpenStudio,
+    onOpenQueue,
 }) => {
     const [isPresetMenuOpen, setIsPresetMenuOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
@@ -70,8 +70,8 @@ const Topbar: React.FC<TopbarProps> = ({
     const selectedIcon = [...PRESETS, ...userPresets].find(p => p.name === selectedPreset)?.icon || 'sliders';
 
     return (
-        <header className="topbar">
-            <a className="brand" href="#main-content" aria-label="SlowedLab home">
+        <header className="topbar" aria-label="App bar">
+            <a className="brand hoverable" href="#main-content" aria-label="SlowedLab home" title="SlowedLab — back to studio">
                 <span className="brand-mark" aria-hidden="true"><img src="/logo-mark.svg" alt="" /></span>
                 <span className="brand-copy">
                     <strong>SlowedLab</strong>
@@ -79,19 +79,25 @@ const Topbar: React.FC<TopbarProps> = ({
                 </span>
             </a>
 
-            <div className="topbar-session" aria-live="polite">
+            <button
+                className="topbar-session hoverable"
+                onClick={onOpenQueue}
+                title={audio.playlist.length ? `Open queue — ${audio.playlist.length} track${audio.playlist.length === 1 ? '' : 's'}` : 'Queue is empty — add audio to begin'}
+                aria-label={audio.playlist.length ? `Open queue, ${audio.playlist.length} tracks` : 'Open queue'}
+            >
                 <span className={`session-dot ${audio.isPlaying ? 'playing' : ''}`} aria-hidden="true" />
                 <span className="topbar-track-name">{currentTrackName}</span>
                 <span className="topbar-track-count">{audio.playlist.length || 0} in queue</span>
-            </div>
+            </button>
 
             <nav className="topbar-actions" aria-label="Studio actions">
                 <div className="preset-menu" ref={menuRef}>
                     <button
-                        className="preset-trigger"
+                        className="preset-trigger hoverable"
                         onClick={() => setIsPresetMenuOpen(open => !open)}
                         aria-expanded={isPresetMenuOpen}
                         aria-controls="preset-menu"
+                        title="Choose a sound preset"
                     >
                         <IconRenderer icon={selectedIcon} size={17} />
                         <span>{selectedPreset}</span>
@@ -122,7 +128,8 @@ const Topbar: React.FC<TopbarProps> = ({
                                 {filteredFactoryPresets.map((preset) => (
                                     <button
                                         key={preset.name}
-                                        className={`preset-option ${selectedPreset === preset.name ? 'active' : ''}`}
+                                        className={`preset-option hoverable ${selectedPreset === preset.name ? 'active' : ''}`}
+                                        title={preset.description}
                                         onClick={() => {
                                             applyPreset(preset.name);
                                             setIsPresetMenuOpen(false);
@@ -141,7 +148,8 @@ const Topbar: React.FC<TopbarProps> = ({
                                 {filteredUserPresets.map((preset) => (
                                     <button
                                         key={preset.id}
-                                        className={`preset-option ${selectedPreset === preset.name ? 'active' : ''}`}
+                                        className={`preset-option hoverable ${selectedPreset === preset.name ? 'active' : ''}`}
+                                        title="Your saved preset"
                                         onClick={() => {
                                             applyPreset(preset.name);
                                             setIsPresetMenuOpen(false);
@@ -168,32 +176,41 @@ const Topbar: React.FC<TopbarProps> = ({
                                         placeholder="Preset name"
                                         maxLength={32}
                                     />
-                                    <button onClick={saveUserPreset} aria-label="Save current preset"><FiSave /></button>
+                                    <button className="hoverable" onClick={saveUserPreset} aria-label="Save current preset" title="Save current mix as a preset"><FiSave /></button>
                                 </div>
                             </div>
                         </section>
                     )}
                 </div>
 
-                <label className="topbar-button upload-action">
+                <button
+                    className={`topbar-button studio-action hoverable ${isStudioOpen ? 'active' : ''}`}
+                    onClick={onOpenStudio}
+                    aria-expanded={isStudioOpen}
+                    aria-controls="effects-title"
+                    title="Open studio — tune speed, space, bass and more"
+                >
+                    <FiSliders aria-hidden="true" />
+                    <span>Studio</span>
+                </button>
+
+                <label className="topbar-button upload-action hoverable" title="Add audio files from your device">
                     <FiUploadCloud aria-hidden="true" />
                     <span>Add audio</span>
                     <input type="file" accept="audio/*" multiple onChange={handleFileUpload} />
                 </label>
-                <button className="topbar-button export-action" onClick={exportSelection} disabled={!currentTrack?.buffer || isExporting}>
-                    <FiDownload aria-hidden="true" />
-                    <span>{isExporting ? 'Rendering…' : 'Export mix'}</span>
-                </button>
 
                 <div className="utility-actions">
-                    <a href="https://ko-fi.com/gwhyyy" target="_blank" rel="noreferrer" aria-label="Support SlowedLab"><FiHeart /></a>
-                    <a href="https://github.com/anasfik/SlowedLab" target="_blank" rel="noreferrer" aria-label="View source on GitHub"><FiGithub /></a>
+                    <a className="hoverable" href="https://ko-fi.com/gwhyyy" target="_blank" rel="noreferrer" aria-label="Support SlowedLab" title="Support SlowedLab"><FiHeart /></a>
+                    <a className="hoverable" href="https://github.com/anasfik/SlowedLab" target="_blank" rel="noreferrer" aria-label="View source on GitHub" title="View source on GitHub"><FiGithub /></a>
                     <button
+                        className="hoverable"
                         onClick={() => {
                             setShowBugModal(true);
                             setBugMessage(null);
                         }}
                         aria-label="Report a problem"
+                        title="Report a problem"
                     ><RiBugLine /></button>
                 </div>
             </nav>

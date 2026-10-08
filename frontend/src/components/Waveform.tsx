@@ -47,6 +47,34 @@ export default function Waveform({ buffer, currentTime, playbackRate, onSeek, he
   const plainLayerRef = useRef<HTMLCanvasElement | null>(null);
   const geometryRef = useRef({ w: 0, h: 0, scaledW: 0, dpr: 1, hasBuffer: false });
   const lastDrawnRef = useRef(-1);
+  // Hover preview: time (timeline seconds) + x position for the tooltip.
+  // Shown before the user clicks, so they can aim a seek precisely.
+  const [hoverPreview, setHoverPreview] = useState<{ x: number; time: number } | null>(null);
+
+  const formatHoverTime = (seconds: number) => {
+    const s = Math.max(0, seconds);
+    const mins = Math.floor(s / 60);
+    const secs = Math.floor(s % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Map a client X to a timeline time, accounting for the scrolled view.
+  const timeAtClientX = useCallback((clientX: number): { time: number; x: number } | null => {
+    const canvas = canvasRef.current;
+    if (!canvas || !buffer) return null;
+    const rect = canvas.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const rate = Math.max(0.0001, playbackRate);
+    const total = buffer.duration / rate;
+    const { w, scaledW } = geometryRef.current;
+    const { position } = getPosition();
+    const progress = buffer.duration > 0 ? Math.max(0, Math.min(1, position / buffer.duration)) : 0;
+    const playheadPixel = progress * scaledW;
+    const panOffset =
+      scaledW > w ? Math.max(0, Math.min(playheadPixel - w * TARGET_PLAYHEAD, scaledW - w)) : 0;
+    const pct = Math.max(0, Math.min(1, (x + panOffset) / scaledW));
+    return { time: pct * total, x };
+  }, [buffer, playbackRate, getPosition]);
 
   // Resize observer for responsiveness
   useEffect(() => {
@@ -235,7 +263,16 @@ export default function Waveform({ buffer, currentTime, playbackRate, onSeek, he
   const ariaTime = currentTime;
 
   return (
-    <div ref={containerRef} className="waveform-canvas full-width" style={{ height }}>
+    <div ref={containerRef} className="waveform-canvas full-width waveform-hover-zone" style={{ height }}>
+      {hoverPreview && buffer && (
+        <div
+          className="waveform-hover-tip"
+          style={{ left: Math.max(28, Math.min(hoverPreview.x, (geometryRef.current.w || width) - 28)) }}
+          aria-hidden="true"
+        >
+          {formatHoverTime(hoverPreview.time)}
+        </div>
+      )}
       <canvas
         ref={canvasRef}
         role="slider"
@@ -257,11 +294,20 @@ export default function Waveform({ buffer, currentTime, playbackRate, onSeek, he
         }}
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture(event.pointerId);
+          setHoverPreview(null);
           handlePointer(event);
         }}
         onPointerMove={(e) => {
-          if (e.currentTarget.hasPointerCapture(e.pointerId)) handlePointer(e);
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+            handlePointer(e);
+            return;
+          }
+          // Hover preview only (no seek until click). Cheap: one state update
+          // per move, same mapping as the seek handler.
+          const preview = timeAtClientX(e.clientX);
+          setHoverPreview(preview);
         }}
+        onPointerLeave={() => setHoverPreview(null)}
         onPointerUp={(event) => event.currentTarget.releasePointerCapture(event.pointerId)}
         style={{ display: 'block' }}
       />

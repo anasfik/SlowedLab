@@ -5,6 +5,7 @@ interface KeyboardShortcutsProps {
     onNext: () => void;
     onPrevious: () => void;
     onSeek: (delta: number) => void;
+    onHelp?: () => void;
 }
 
 export const useKeyboardShortcuts = ({
@@ -12,12 +13,13 @@ export const useKeyboardShortcuts = ({
     onNext,
     onPrevious,
     onSeek,
+    onHelp,
 }: KeyboardShortcutsProps) => {
-    const callbacksRef = useRef({ onPlayPause, onNext, onPrevious, onSeek });
+    const callbacksRef = useRef({ onPlayPause, onNext, onPrevious, onSeek, onHelp });
 
     useEffect(() => {
-        callbacksRef.current = { onPlayPause, onNext, onPrevious, onSeek };
-    }, [onPlayPause, onNext, onPrevious, onSeek]);
+        callbacksRef.current = { onPlayPause, onNext, onPrevious, onSeek, onHelp };
+    }, [onPlayPause, onNext, onPrevious, onSeek, onHelp]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -30,9 +32,18 @@ export const useKeyboardShortcuts = ({
                 return;
             }
 
-            const { onPlayPause, onNext, onPrevious, onSeek } = callbacksRef.current;
+            const { onPlayPause, onNext, onPrevious, onSeek, onHelp } = callbacksRef.current;
 
             switch (e.code) {
+                case 'Slash':
+                    // '?' — Shift+/ on most layouts. Input guard above keeps
+                    // this from firing while naming a preset.
+                    if (e.shiftKey) {
+                        e.preventDefault();
+                        onHelp?.();
+                    }
+                    break;
+
                 case 'Space':
                 case 'KeyK': // YouTube style
                 case 'MediaPlayPause':

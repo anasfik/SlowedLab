@@ -10,7 +10,7 @@ import {
   FiActivity, FiVolume2, FiCpu,
   FiHeadphones, FiStar, FiZap as FiBolt, FiDroplet as FiDiamond, FiSliders,
   FiX, FiList, FiTrash2, FiUploadCloud, FiFolder, FiLink,
-  FiVolumeX, FiInfo, FiDownload, FiRepeat, FiRotateCcw
+  FiVolumeX, FiInfo, FiDownload, FiRepeat, FiRotateCcw, FiCheck
 } from 'react-icons/fi';
 import Topbar from './components/Topbar.tsx';
 import Sidebar from './components/Sidebar.tsx';
@@ -215,7 +215,12 @@ export default function App() {
   const [isRestoring, setIsRestoring] = useState(true);
   const [loadingProgress, setLoadingProgress] = useState<{ fileName: string, progress: number } | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState<number | null>(null);
+  const [successNotice, setSuccessNotice] = useState<string | null>(null);
   const [showBugModal, setShowBugModal] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const closeShortcuts = useCallback(() => setShowShortcuts(false), []);
+  const shortcutsPanelRef = useDialogFocus<HTMLElement>(showShortcuts, closeShortcuts);
   const [bugTitle, setBugTitle] = useState('');
   const [bugDescription, setBugDescription] = useState('');
   const [bugEmail, setBugEmail] = useState('');
@@ -244,6 +249,9 @@ export default function App() {
   // when the user clicks Restore, never automatically on reopen.
   const [sessionCache, setSessionCache] = useState<{ id: string; name: string; type: string }[]>([]);
   const [isSessionRestoring, setIsSessionRestoring] = useState(false);
+  // Fullscreen "Preparing" overlay only for slow decodes (>3s). Fast files
+  // show an inline waveform skeleton instead of flashing a modal overlay.
+  const [slowDecode, setSlowDecode] = useState(false);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
@@ -532,6 +540,15 @@ export default function App() {
   useEffect(() => {
     loopModeRef.current = loopMode;
   }, [loopMode]);
+
+  useEffect(() => {
+    if (!currentTrack?.isLoading) {
+      setSlowDecode(false);
+      return;
+    }
+    const t = window.setTimeout(() => setSlowDecode(true), 3000);
+    return () => window.clearTimeout(t);
+  }, [currentTrack?.isLoading, currentTrack?.id]);
 
   // Initialize Audio Context
   useEffect(() => {
@@ -1392,6 +1409,7 @@ export default function App() {
     },
     onNext: playNextTrack,
     onPrevious: playPreviousTrack,
+    onHelp: () => setShowShortcuts(true),
     onSeek: (delta) => {
       // Current time + delta, clamped
       if (!currentTrack?.buffer) return;
@@ -1486,6 +1504,7 @@ export default function App() {
   const exportSelection = async () => {
     if (!currentTrack?.buffer) return;
     setIsExporting(true);
+    setExportProgress(0);
     try {
       const input = currentTrack.buffer;
       const sampleRate = input.sampleRate;
@@ -1493,9 +1512,10 @@ export default function App() {
       // the mix, not your speaker level.
       const tail = effects.reverbAmount > 0 ? 2 : 0.1;
       const renderedDuration = input.duration / effects.playbackRate + tail;
+      const totalSamples = Math.ceil(renderedDuration * sampleRate);
       const offline = new OfflineAudioContext(
         input.numberOfChannels,
-        Math.ceil(renderedDuration * sampleRate),
+        totalSamples,
         sampleRate
       );
 
@@ -1513,19 +1533,35 @@ export default function App() {
       );
       source.start();
 
+      // Chunked progress: suspend roughly twice a second of rendered audio,
+      // report, and resume. Times must ascend and stay inside the duration.
+      const step = Math.max(1, Math.floor(sampleRate / 2));
+      for (let s = step; s < totalSamples; s += step) {
+        const at = s / sampleRate;
+        offline.suspend(at).then(() => {
+          setExportProgress(Math.min(99, Math.round((s / totalSamples) * 100)));
+          offline.resume();
+        });
+      }
+
       const rendered = await offline.startRendering();
+      setExportProgress(100);
       const blob = audioBufferToWav(rendered);
       const url = URL.createObjectURL(blob);
+      const fileName = `${currentTrack.file.name.replace(/\.[^/.]+$/, '')}-slowedlab.wav`;
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${currentTrack.file.name.replace(/\.[^/.]+$/, '')}-slowedlab.wav`;
+      link.download = fileName;
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setSuccessNotice(`Downloaded ${fileName}`);
+      setTimeout(() => setSuccessNotice(null), 5000);
     } catch (err) {
       console.error('Export failed', err);
       setAudio(prev => ({ ...prev, error: 'Could not render this mix. Try a shorter file or close other tabs.' }));
     } finally {
       setIsExporting(false);
+      setExportProgress(null);
     }
   };
 
@@ -1551,6 +1587,7 @@ export default function App() {
         setBugMessage={setBugMessage}
         isStudioOpen={isSidebarOpen}
         onOpenStudio={() => setIsSidebarOpen(true)}
+        onOpenShortcuts={() => setShowShortcuts(true)}
       />
 
       <main
@@ -1576,7 +1613,7 @@ export default function App() {
             </header>
 
             <div className="waveform-shell">
-              <div className="waveform-toolbar"><span>Waveform</span><span>Drag or use arrow keys to seek</span></div>
+              <div className="waveform-toolbar"><span>Waveform</span><span id="waveform-seek-hint">Drag or use arrow keys to seek</span></div>
               <Waveform
                 buffer={currentTrack.buffer}
                 currentTime={audio.currentTime}
@@ -1584,6 +1621,8 @@ export default function App() {
                 getPosition={getPosition}
                 onSeek={seekTo}
                 height={220}
+                describedById="waveform-seek-hint"
+                loading={currentTrack.isLoading}
               />
               <div className="time-ruler" aria-hidden="true">
                 <span>{formatTime(audio.currentTime)}</span>
@@ -1789,7 +1828,8 @@ export default function App() {
             )}
           </div>
           <button className="play-button hoverable" onClick={togglePlayback} disabled={!currentTrack?.buffer || currentTrack.isLoading} aria-label={audio.isPlaying ? 'Pause' : 'Play'} title={audio.isPlaying ? 'Pause (Space)' : 'Play (Space)'}>
-            {audio.isPlaying ? <FiPause /> : <FiPlay className="play-glyph" />}
+            <span className={`play-icon ${audio.isPlaying ? 'off' : 'on'}`} aria-hidden={audio.isPlaying}><FiPlay className="play-glyph" /></span>
+            <span className={`play-icon ${audio.isPlaying ? 'on' : 'off'}`} aria-hidden={!audio.isPlaying}><FiPause /></span>
           </button>
           <div
             className="transport-nav"
@@ -1808,6 +1848,14 @@ export default function App() {
           <span className="dock-time">{formatTime(audio.currentTime)} / {formatTime((currentTrack?.duration || 0) / effects.playbackRate)}</span>
         </div>
         <div className="dock-tools">
+          <button
+            className="loop-button loop-cycle hoverable"
+            onClick={() => setLoopMode(loopMode === 'once' ? 'all' : loopMode === 'all' ? 'one' : 'once')}
+            aria-label={loopMode === 'once' ? 'Play once (tap for repeat queue)' : loopMode === 'all' ? 'Repeat queue (tap for replay track)' : 'Replay track (tap for play once)'}
+            title={loopMode === 'once' ? 'Play once' : loopMode === 'all' ? 'Repeat queue' : 'Replay track'}
+          >
+            {loopMode === 'once' ? <FiPlay aria-hidden="true" /> : loopMode === 'all' ? <FiRepeat aria-hidden="true" /> : <FiRotateCcw aria-hidden="true" />}
+          </button>
           <div className="loop-switch loop-icons" role="group" aria-label="Repeat mode">
             <button
               className={`loop-button hoverable ${loopMode === 'once' ? 'active' : ''}`}
@@ -1845,7 +1893,8 @@ export default function App() {
               aria-pressed={muted}
               title={muted ? 'Unmute' : 'Mute'}
             >
-              {muted || volume === 0 ? <FiVolumeX aria-hidden="true" /> : <FiVolume2 aria-hidden="true" />}
+              <span className={`play-icon ${muted || volume === 0 ? 'off' : 'on'}`} aria-hidden={muted || volume === 0}><FiVolume2 aria-hidden="true" /></span>
+              <span className={`play-icon ${muted || volume === 0 ? 'on' : 'off'}`} aria-hidden={!(muted || volume === 0)}><FiVolumeX aria-hidden="true" /></span>
             </button>
             <input
               type="range"
@@ -1853,6 +1902,7 @@ export default function App() {
               max="1"
               step="0.01"
               value={muted ? 0 : volume}
+              style={{ '--fill': `${(muted ? 0 : volume) * 100}%` } as React.CSSProperties}
               onChange={(e) => { setMuted(false); setVolume(Number(e.target.value)); }}
               aria-label="Volume"
               aria-valuetext={`${Math.round((muted ? 0 : volume) * 100)} percent`}
@@ -1903,6 +1953,15 @@ export default function App() {
           </header>
           <div className="queue-actions">
             <label className="secondary-button hoverable" title="Add audio files to the queue"><FiUploadCloud /> Add tracks<input type="file" accept="audio/*" onChange={handleFileUpload} multiple /></label>
+            <button
+              className="secondary-button queue-download hoverable"
+              onClick={exportSelection}
+              disabled={!currentTrack?.buffer || isExporting}
+              title={currentTrack?.buffer ? 'Download this mix as WAV' : 'Load a track to enable download'}
+              aria-label="Download mix as WAV"
+            >
+              <FiDownload aria-hidden="true" /> {isExporting ? 'Rendering…' : 'Download'}
+            </button>
             <button className="text-button danger hoverable" onClick={() => setPendingClear(true)} disabled={!audio.playlist.length} title="Remove all tracks"><FiTrash2 /> Clear</button>
           </div>
           <div className="queue-link">
@@ -1948,43 +2007,61 @@ export default function App() {
         <button className="drawer-backdrop" onClick={() => { setIsSidebarOpen(false); setIsPlaylistOpen(false); }} aria-label="Close panel" />
       )}
 
-      {currentTrack?.isLoading && (
+      {currentTrack?.isLoading && slowDecode && (
         <div className="processing-state" role="status">
           <img className="loading-logo" src="/logo-mark.svg" alt="" />
           <p><strong>Preparing your track</strong><small>Reading audio data in this browser…</small></p>
         </div>
       )}
 
-      {loadingProgress && (
-        <div className="progress-toast" role="status">
-          <div><strong>Adding {loadingProgress.fileName}</strong><span>{loadingProgress.progress}%</span></div>
-          <progress max="100" value={loadingProgress.progress}>{loadingProgress.progress}%</progress>
-        </div>
-      )}
+      {/* One stacked toast rail: every notice shares position, entry
+          choreography, and spacing instead of overlapping at one spot. */}
+      <div className="toast-stack" aria-live="polite">
+        {loadingProgress && (
+          <div className="progress-toast" role="status">
+            <div><strong>Adding {loadingProgress.fileName}</strong><span>{loadingProgress.progress}%</span></div>
+            <progress max="100" value={loadingProgress.progress}>{loadingProgress.progress}%</progress>
+          </div>
+        )}
 
-      {audioBlocked && (
-        <div className="status-toast audio-blocked-toast" role="alert">
-          <FiVolumeX aria-hidden="true" />
-          <span>
-            <strong>No audio output.</strong> Your browser is blocking sound for this
-            site. Unmute the tab, allow sound for slowedlab.app in site settings
-            (Brave: lion icon → Shields → allow sound/fingerprinting), then press
-            play again.
-          </span>
-          <span className="toast-actions">
-            <button onClick={() => { setAudioBlocked(false); togglePlayback(); }} aria-label="Try playing again">Retry</button>
-            <button onClick={() => setAudioBlocked(false)} aria-label="Dismiss message"><FiX /></button>
-          </span>
-        </div>
-      )}
+        {exportProgress != null && (
+          <div className="progress-toast" role="status">
+            <div><strong>Rendering mix</strong><span>{exportProgress}%</span></div>
+            <progress max="100" value={exportProgress}>{exportProgress}%</progress>
+          </div>
+        )}
 
-      {cacheNotice && (
-        <div className="status-toast" role="status">
-          <FiInfo aria-hidden="true" />
-          <span>{cacheNotice}</span>
-          <button onClick={() => setCacheNotice(null)} aria-label="Dismiss message"><FiX /></button>
-        </div>
-      )}
+        {successNotice && (
+          <div className="status-toast success-toast" role="status">
+            <FiCheck aria-hidden="true" />
+            <span>{successNotice}</span>
+            <button onClick={() => setSuccessNotice(null)} aria-label="Dismiss message"><FiX /></button>
+          </div>
+        )}
+
+        {audioBlocked && (
+          <div className="status-toast audio-blocked-toast" role="alert">
+            <FiVolumeX aria-hidden="true" />
+            <span>
+              <strong>No audio output.</strong> Your browser is blocking sound for this
+              site. Unmute the tab, allow sound for slowedlab.app in site settings
+              (Brave: lion icon → Shields → allow sound/fingerprinting), then press
+              play again.
+            </span>
+            <span className="toast-actions">
+              <button onClick={() => { setAudioBlocked(false); togglePlayback(); }} aria-label="Try playing again">Retry</button>
+              <button onClick={() => setAudioBlocked(false)} aria-label="Dismiss message"><FiX /></button>
+            </span>
+          </div>
+        )}
+
+        {cacheNotice && (
+          <div className="status-toast" role="status">
+            <FiInfo aria-hidden="true" />
+            <span>{cacheNotice}</span>
+            <button onClick={() => setCacheNotice(null)} aria-label="Dismiss message"><FiX /></button>
+          </div>
+        )}
 
       {audio.error && (
         <div className="status-toast" role="alert">
@@ -1993,6 +2070,7 @@ export default function App() {
           <button onClick={() => setAudio(prev => ({ ...prev, error: null }))} aria-label="Dismiss message"><FiX /></button>
         </div>
       )}
+      </div>
 
       <BugReportPanel
         open={showBugModal}
@@ -2007,6 +2085,34 @@ export default function App() {
         onChangeEmail={setBugEmail}
         onSubmit={submitBugReport}
       />
+
+      {showShortcuts && (
+        <div className="modal-layer" onMouseDown={(e) => { if (e.target === e.currentTarget) closeShortcuts(); }}>
+          <aside ref={shortcutsPanelRef} tabIndex={-1} className="report-dialog shortcuts-dialog" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
+            <header className="drawer-header">
+              <div><p className="overline">Play faster</p><h2 id="shortcuts-title">Keyboard shortcuts</h2></div>
+              <button className="icon-button hoverable" onClick={closeShortcuts} aria-label="Close shortcuts"><FiX /></button>
+            </header>
+            <div className="drawer-body shortcuts-list">
+              {[
+                { keys: ['Space', 'K'], action: 'Play / pause' },
+                { keys: ['←', '→'], action: 'Seek 5 seconds' },
+                { keys: ['J', 'L'], action: 'Seek 10 seconds' },
+                { keys: ['Shift ←', 'Shift →'], action: 'Previous / next track' },
+                { keys: ['Shift', 'N'], action: 'Next track' },
+                { keys: ['Shift', 'P'], action: 'Previous track' },
+                { keys: ['?'], action: 'Open this panel' },
+                { keys: ['Esc'], action: 'Close panels' },
+              ].map(({ keys, action }) => (
+                <div className="shortcut-row" key={action}>
+                  <span className="kbd-group">{keys.map((k, i) => <kbd key={i}>{k}</kbd>)}</span>
+                  <span>{action}</span>
+                </div>
+              ))}
+            </div>
+          </aside>
+        </div>
+      )}
 
     </div>
   );

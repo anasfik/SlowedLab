@@ -6,6 +6,11 @@ interface Props {
   playbackRate: number;
   onSeek: (time: number) => void;
   height?: number;
+  // Optional id of a hint element describing how to operate the slider.
+  describedById?: string;
+  // True while the buffer is still decoding: show a skeleton instead of a
+  // flat line so short loads never flash the fullscreen overlay.
+  loading?: boolean;
   // Live position source. Kept as a getter (not a value) so the playhead can
   // run at full frame rate from App's rAF loop without re-rendering React.
   getPosition: () => { position: number; time: number };
@@ -36,7 +41,7 @@ function computePeaks(buffer: AudioBuffer, targetBars: number): number[] {
 // Panel the playhead sits at before the view starts scrolling.
 const TARGET_PLAYHEAD = 0.65;
 
-export default function Waveform({ buffer, currentTime, playbackRate, onSeek, height = 180, getPosition }: Props) {
+export default function Waveform({ buffer, currentTime, playbackRate, onSeek, height = 180, describedById, loading, getPosition }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [width, setWidth] = useState(1200);
@@ -264,6 +269,19 @@ export default function Waveform({ buffer, currentTime, playbackRate, onSeek, he
 
   return (
     <div ref={containerRef} className="waveform-canvas full-width waveform-hover-zone" style={{ height }}>
+      {loading && !buffer && (
+        <div className="waveform-skeleton" aria-hidden="true">
+          {Array.from({ length: 56 }, (_, i) => (
+            <span
+              key={i}
+              style={{
+                height: `${18 + 72 * Math.abs(Math.sin(i * 1.7) * Math.cos(i * 0.6))}%`,
+                animationDelay: `${(i % 14) * 70}ms`,
+              }}
+            />
+          ))}
+        </div>
+      )}
       {hoverPreview && buffer && (
         <div
           className="waveform-hover-tip"
@@ -278,6 +296,7 @@ export default function Waveform({ buffer, currentTime, playbackRate, onSeek, he
         role="slider"
         tabIndex={buffer ? 0 : -1}
         aria-label="Track position"
+        aria-describedby={describedById}
         aria-valuemin={0}
         aria-valuemax={Math.round(totalDuration)}
         aria-valuenow={Math.round(ariaTime)}

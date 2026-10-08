@@ -1,7 +1,7 @@
 import { FiClock, FiCpu, FiEdit2, FiLayers, FiRotateCcw, FiShare2, FiTrash2, FiVolume2, FiWind, FiX, FiZap } from 'react-icons/fi';
 import { EffectSettings, UserPreset } from '../App';
 import { useDialogFocus } from '../hooks/useDialogFocus';
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 
 interface SidebarProps {
     isOpen: boolean;
@@ -84,25 +84,29 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                     {controls.map(({ key, label, hint, icon: Icon, min, max, step, format }) => {
                         const value = effects[key];
+                        const fill = `${((value - min) / (max - min)) * 100}%`;
                         return (
-                            <div className="effect-control" key={key}>
+                            <div className={`effect-control ${min < 0 ? 'bipolar' : ''}`} key={key}>
                                 <label htmlFor={`effect-${key}`}>
                                     <span className="effect-icon"><Icon /></span>
                                     <span className="effect-copy"><strong>{label}</strong><small>{hint}</small></span>
-                                    <output htmlFor={`effect-${key}`}>{format(value)}</output>
                                 </label>
-                                <input
-                                    id={`effect-${key}`}
-                                    type="range"
-                                    min={min}
-                                    max={max}
-                                    step={step}
-                                    value={value}
-                                    onChange={(event) => {
-                                        setEffects(previous => ({ ...previous, [key]: Number(event.target.value) }));
-                                        setSelectedPreset('Custom');
-                                    }}
-                                />
+                                <div className="slider-wrap">
+                                    <input
+                                        id={`effect-${key}`}
+                                        type="range"
+                                        min={min}
+                                        max={max}
+                                        step={step}
+                                        value={value}
+                                        style={{ '--fill': fill } as CSSProperties}
+                                        onChange={(event) => {
+                                            setEffects(previous => ({ ...previous, [key]: Number(event.target.value) }));
+                                            setSelectedPreset('Custom');
+                                        }}
+                                    />
+                                    <output className="slider-bubble" htmlFor={`effect-${key}`} style={{ '--fill': fill } as CSSProperties}>{format(value)}</output>
+                                </div>
                             </div>
                         );
                     })}

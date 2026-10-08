@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    FiCheck, FiChevronDown, FiGithub, FiHeart, FiMusic,
+    FiCheck, FiChevronDown, FiCommand, FiGithub, FiHeart, FiMusic,
     FiSave, FiSearch, FiSliders, FiUploadCloud
 } from 'react-icons/fi';
 import { RiBugLine } from 'react-icons/ri';
@@ -19,6 +19,7 @@ interface TopbarProps {
     setBugMessage: (msg: string | null) => void;
     isStudioOpen: boolean;
     onOpenStudio: () => void;
+    onOpenShortcuts: () => void;
 }
 
 const Topbar: React.FC<TopbarProps> = ({
@@ -34,6 +35,7 @@ const Topbar: React.FC<TopbarProps> = ({
     setBugMessage,
     isStudioOpen,
     onOpenStudio,
+    onOpenShortcuts,
 }) => {
     const [isPresetMenuOpen, setIsPresetMenuOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
@@ -186,6 +188,12 @@ const Topbar: React.FC<TopbarProps> = ({
                 <div className="utility-actions">
                     <a className="hoverable" href="https://ko-fi.com/gwhyyy" target="_blank" rel="noreferrer" aria-label="Support SlowedLab" title="Support SlowedLab"><FiHeart /></a>
                     <a className="hoverable" href="https://github.com/anasfik/SlowedLab" target="_blank" rel="noreferrer" aria-label="View source on GitHub" title="View source on GitHub"><FiGithub /></a>
+                    <button
+                        className="hoverable"
+                        onClick={onOpenShortcuts}
+                        aria-label="Keyboard shortcuts"
+                        title="Keyboard shortcuts (?)"
+                    ><FiCommand /></button>
                     <button
                         className="hoverable"
                         onClick={() => {

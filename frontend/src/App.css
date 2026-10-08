@@ -507,6 +507,16 @@ button.hoverable:disabled, label.hoverable:has(input:disabled) { cursor: not-all
 .loop-button.active { background: var(--accent); color: var(--accent-ink); }
 .loop-button.active:hover { background: var(--accent-hover); color: var(--accent-ink); }
 
+/* Icon-only repeat control lives with the right-side tools. */
+.loop-icons { margin-left: 0; }
+.loop-icons .loop-button { min-height: 34px; padding: 0 9px; }
+
+/* Center progress: live time + seekable bar + total. */
+.dock-progress { display: flex; align-items: center; gap: 8px; min-width: min(300px, 28vw); margin-left: 8px; }
+.dock-seek { width: min(220px, 22vw); cursor: pointer; }
+.dock-seek:disabled { cursor: not-allowed; opacity: 0.4; }
+.dock-total { color: var(--text-muted); }
+
 .dock-tools { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
 .dock-tools > button { position: relative; display: flex; min-height: 44px; align-items: center; gap: 7px; padding: 0 12px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-soft); font-size: 11px; cursor: pointer; transition: background 200ms var(--ease), border-color 200ms var(--ease), color 200ms var(--ease), transform 200ms var(--ease), box-shadow 200ms var(--ease); }
 .dock-tools > button:hover:not(:disabled), .dock-tools > button.active { border-color: var(--line); background: var(--surface-strong); color: var(--text); transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28); }
@@ -722,8 +732,7 @@ input[type='range']::-moz-range-thumb { width: 9px; height: 9px; border: 4px sol
   .play-button { width: 50px; height: 50px; }
   .dock-time { display: none; }
   .loop-switch { margin-left: 2px; }
-  .loop-button span { display: none; }
-  .loop-button { padding: 0 9px; }
+  .dock-progress { display: none; }
   .nav-preview { display: none; }
   .waveform-hover-tip { display: none; }
   .session-restore { flex-direction: column; align-items: stretch; text-align: left; }

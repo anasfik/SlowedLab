@@ -1728,7 +1728,26 @@ export default function App() {
               <span className="nav-preview" role="status">{nextTrack ? `${shortName(nextTrack.file.name)} ▶` : 'No next track'}</span>
             )}
           </div>
-          <div className="loop-switch" role="group" aria-label="Repeat mode">
+          <div className="dock-progress" role="group" aria-label="Track progress">
+            <span className="dock-time">{formatTime(audio.currentTime)}</span>
+            <input
+              className="dock-seek"
+              type="range"
+              min={0}
+              max={Math.max(1, (currentTrack?.duration || 0) / effects.playbackRate)}
+              step={0.1}
+              value={Math.min(audio.currentTime, Math.max(1, (currentTrack?.duration || 0) / effects.playbackRate))}
+              onChange={(e) => seekTo(Number(e.target.value))}
+              disabled={!currentTrack?.buffer}
+              aria-label="Seek through track"
+              aria-valuetext={`${formatTime(audio.currentTime)} of ${formatTime((currentTrack?.duration || 0) / effects.playbackRate)}`}
+              title="Drag to seek"
+            />
+            <span className="dock-time dock-total">{formatTime((currentTrack?.duration || 0) / effects.playbackRate)}</span>
+          </div>
+        </div>
+        <div className="dock-tools">
+          <div className="loop-switch loop-icons" role="group" aria-label="Repeat mode">
             <button
               className={`loop-button hoverable ${loopMode === 'once' ? 'active' : ''}`}
               onClick={() => setLoopMode('once')}
@@ -1736,7 +1755,7 @@ export default function App() {
               title="Play once — stop when this track ends"
               aria-label="Play once"
             >
-              <FiPlay aria-hidden="true" /><span>Once</span>
+              <FiPlay aria-hidden="true" />
             </button>
             <button
               className={`loop-button hoverable ${loopMode === 'all' ? 'active' : ''}`}
@@ -1745,7 +1764,7 @@ export default function App() {
               title="Play through the whole queue"
               aria-label="Repeat queue"
             >
-              <FiRepeat aria-hidden="true" /><span>Queue</span>
+              <FiRepeat aria-hidden="true" />
             </button>
             <button
               className={`loop-button hoverable ${loopMode === 'one' ? 'active' : ''}`}
@@ -1754,12 +1773,9 @@ export default function App() {
               title="Replay — loop the current track"
               aria-label="Replay track"
             >
-              <FiRotateCcw aria-hidden="true" /><span>Replay</span>
+              <FiRotateCcw aria-hidden="true" />
             </button>
           </div>
-          <span className="dock-time">{formatTime(audio.currentTime)}</span>
-        </div>
-        <div className="dock-tools">
           <div className="volume-control">
             <button
               className="volume-mute hoverable"
